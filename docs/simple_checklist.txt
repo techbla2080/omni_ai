@@ -1,0 +1,94 @@
+═══════════════════════════════════════════════════════════════════
+  OMNI-AI SMART IDE - SIMPLE INSTALLATION CHECKLIST
+═══════════════════════════════════════════════════════════════════
+
+□ STEP 1: Create Folders
+  ─────────────────────────
+  Open your OMNI-AI project folder, then create:
+  
+  □ Folder: backend/scripts/
+  □ Folder: docs/
+
+═══════════════════════════════════════════════════════════════════
+
+□ STEP 2: Save These 6 Files
+  ─────────────────────────────
+  
+  □ seed_capabilities.py
+    → Save to: backend/scripts/seed_capabilities.py
+  
+  □ api_capabilities.py
+    → Save to: backend/api/capabilities.py
+    ⚠️  Drop "api_" from the name!
+  
+  □ enhanced_chat.py
+    → Save to: backend/api/chat_enhanced.py
+  
+  □ test_smart_ide.py
+    → Save to: test_smart_ide.py (in project root)
+  
+  □ README_SMART_IDE.md
+    → Save to: docs/SMART_IDE.md
+  
+  □ QUICK_START.md
+    → Save to: docs/QUICK_START_IDE.md
+
+═══════════════════════════════════════════════════════════════════
+
+□ STEP 3: Update Database Connection
+  ────────────────────────────────────
+  □ Open: backend/scripts/seed_capabilities.py
+  □ Find line 10: DATABASE_URL = "..."
+  □ Change to match your .env file
+  □ Save the file
+
+═══════════════════════════════════════════════════════════════════
+
+□ STEP 4: Seed the Database
+  ──────────────────────────
+  Open terminal/command prompt:
+  
+  □ cd OMNI-AI/backend
+  □ source venv/bin/activate    (Windows: venv\Scripts\activate)
+  □ python scripts/seed_capabilities.py
+  
+  ✅ Should see: "Successfully seeded 20 capabilities!"
+
+═══════════════════════════════════════════════════════════════════
+
+□ STEP 5: Update main.py
+  ───────────────────────
+  □ Open: backend/main.py
+  
+  □ Add at the top (with other imports):
+    from api.capabilities import router as capabilities_router
+    from api.chat_enhanced import router as chat_enhanced_router
+  
+  □ Add after app = FastAPI(...):
+    app.include_router(capabilities_router)
+    app.include_router(chat_enhanced_router)
+  
+  □ Save the file
+
+═══════════════════════════════════════════════════════════════════
+
+□ STEP 6: Start & Test
+  ─────────────────────
+  □ python main.py
+  □ Open browser: http://localhost:8000/docs
+  □ Try: GET /api/v1/capabilities
+  
+  ✅ Should return 20 capabilities!
+  
+  □ Try: POST /api/v1/chat
+    Body: {"message": "What can you do?", "user_id": "test"}
+  
+  ✅ Should return response_type: "capability_list"
+
+═══════════════════════════════════════════════════════════════════
+
+🎉 DONE! Your Smart AI IDE is live!
+
+Next: Read docs/QUICK_START_IDE.md for what to do next
+
+═══════════════════════════════════════════════════════════════════

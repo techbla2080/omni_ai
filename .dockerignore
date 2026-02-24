@@ -1,0 +1,12 @@
+__pycache__
+*.pyc
+.env
+.git
+.gitignore
+*.md
+docs/
+*.diagnostic*
+test_*.py
+omni_diagnostic.py
+check_services.sh
+certbot/
