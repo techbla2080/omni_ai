@@ -2,9 +2,14 @@
 // OmniAI - Core Chat Application (Steps 1-55)
 // ============================================================================
 
-const API_BASE = 'http://localhost:8000';
+// DYNAMIC API BASE - works on localhost AND production
+const API_BASE = window.location.hostname === 'localhost' 
+    ? 'http://localhost:8000' 
+    : '';
+
 let conversationId = null;
 let isStreaming = false;
+let attachedFiles = [];
 
 // ============================================================================
 // INITIALIZATION
@@ -16,6 +21,14 @@ document.addEventListener('DOMContentLoaded', () => {
         input.focus();
     }
     loadConversations();
+    
+    // Add sidebar overlay for mobile
+    if (!document.querySelector('.sidebar-overlay')) {
+        const overlay = document.createElement('div');
+        overlay.className = 'sidebar-overlay';
+        overlay.onclick = toggleSidebar;
+        document.body.appendChild(overlay);
+    }
 });
 
 // ============================================================================
@@ -61,7 +74,139 @@ function escapeHtml(text) {
 
 function scrollToBottom() {
     const container = document.getElementById('messagesContainer');
-    container.scrollTop = container.scrollHeight;
+    if (container) {
+        container.scrollTop = container.scrollHeight;
+    }
+}
+
+// ============================================================================
+// CONVERSATIONS MANAGEMENT
+// ============================================================================
+
+async function loadConversations() {
+    try {
+        const response = await fetch(`${API_BASE}/api/v1/conversations`);
+        if (!response.ok) return;
+        
+        const conversations = await response.json();
+        const container = document.getElementById('conversationsList');
+        if (!container) return;
+        
+        if (conversations.length === 0) {
+            container.innerHTML = `
+                <div class="no-conversations">
+                    No conversations yet.<br>Start chatting to create one!
+                </div>
+            `;
+            return;
+        }
+        
+        container.innerHTML = conversations.map(conv => `
+            <div class="conversation-item ${conv.id === conversationId ? 'active' : ''}" 
+                 onclick="loadConversation('${conv.id}')">
+                <div class="conversation-title" ondblclick="renameConversation('${conv.id}', this)">
+                    ${escapeHtml(conv.title || 'New Conversation')}
+                </div>
+                <div class="conversation-meta">
+                    ${new Date(conv.updated_at).toLocaleDateString()}
+                </div>
+                <div class="conversation-actions">
+                    <button class="conv-action-btn" onclick="event.stopPropagation(); showExportMenu('${conv.id}', this)" title="Export">📥</button>
+                    <button class="conv-action-btn" onclick="event.stopPropagation(); deleteConversation('${conv.id}')" title="Delete">🗑️</button>
+                </div>
+            </div>
+        `).join('');
+        
+    } catch (error) {
+        console.error('Error loading conversations:', error);
+    }
+}
+
+async function loadConversation(id) {
+    try {
+        const response = await fetch(`${API_BASE}/api/v1/conversations/${id}`);
+        if (!response.ok) return;
+        
+        const data = await response.json();
+        conversationId = id;
+        
+        const container = document.getElementById('messagesContainer');
+        container.innerHTML = '';
+        
+        hideWelcome();
+        
+        if (data.messages && data.messages.length > 0) {
+            data.messages.forEach(msg => {
+                if (msg.role === 'user') {
+                    addUserMessage(msg.content, msg.id, false);
+                } else {
+                    addAssistantMessage(msg.content, msg.id);
+                }
+            });
+        }
+        
+        loadConversations();
+        closeSidebarOnMobile();
+        scrollToBottom();
+        
+    } catch (error) {
+        console.error('Error loading conversation:', error);
+    }
+}
+
+function startNewConversation() {
+    conversationId = null;
+    const container = document.getElementById('messagesContainer');
+    if (container) {
+        container.innerHTML = '';
+    }
+    showWelcome();
+    loadConversations();
+    closeSidebarOnMobile();
+    
+    const input = document.getElementById('messageInput');
+    if (input) {
+        input.focus();
+    }
+}
+
+async function deleteConversation(id) {
+    if (!confirm('Delete this conversation?')) return;
+    
+    try {
+        await fetch(`${API_BASE}/api/v1/conversations/${id}`, {
+            method: 'DELETE'
+        });
+        
+        if (id === conversationId) {
+            startNewConversation();
+        } else {
+            loadConversations();
+        }
+        
+    } catch (error) {
+        console.error('Error deleting conversation:', error);
+    }
+}
+
+async function renameConversation(id, element) {
+    const currentTitle = element.textContent.trim();
+    const newTitle = prompt('Rename conversation:', currentTitle);
+    
+    if (newTitle && newTitle !== currentTitle) {
+        try {
+            await fetch(`${API_BASE}/api/v1/conversations/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title: newTitle })
+            });
+            
+            element.textContent = newTitle;
+            
+        } catch (error) {
+            console.error('Error renaming conversation:', error);
+        }
+    }
 }
 
 // ============================================================================
@@ -115,9 +260,6 @@ function addAssistantMessage(text, messageId = null, isHtml = false) {
             <button class="regenerate-btn" onclick="regenerateResponse('${messageId}')">
                 🔄 Regenerate
             </button>
-            <button class="regenerate-btn" onclick="regenerateWithModel('${messageId}', 'llama3.2:3b')">
-                🔄 Try 3B
-            </button>
         </div>
         <div class="feedback-buttons">
             <button class="feedback-btn thumbs-up" onclick="submitFeedback('${messageId}', 1)" title="Good response">
@@ -133,7 +275,6 @@ function addAssistantMessage(text, messageId = null, isHtml = false) {
     container.appendChild(messageDiv);
     scrollToBottom();
     
-    // Add run buttons to code blocks
     setTimeout(addRunButtons, 100);
 }
 
@@ -227,7 +368,6 @@ function streamAssistantMessage(text, messageId = null) {
         } else {
             cursor.remove();
             isStreaming = false;
-            // Add run buttons after streaming completes
             setTimeout(addRunButtons, 100);
         }
     }
@@ -276,7 +416,93 @@ function addFileMessage(files) {
 }
 
 // ============================================================================
-// CODE EXECUTION (STEP 50)
+// FILE UPLOAD
+// ============================================================================
+
+function triggerFileUpload() {
+    const input = document.getElementById('fileInput');
+    if (input) {
+        input.click();
+    }
+}
+
+function handleFileSelect(event) {
+    const files = Array.from(event.target.files);
+    files.forEach(file => {
+        if (!attachedFiles.find(f => f.name === file.name)) {
+            attachedFiles.push(file);
+        }
+    });
+    displayAttachedFiles();
+    event.target.value = '';
+}
+
+function displayAttachedFiles() {
+    let container = document.getElementById('attachedFilesContainer');
+    
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'attachedFilesContainer';
+        container.className = 'attached-files-container';
+        const inputArea = document.querySelector('.input-area');
+        if (inputArea) {
+            inputArea.insertBefore(container, inputArea.firstChild);
+        }
+    }
+    
+    if (attachedFiles.length === 0) {
+        container.innerHTML = '';
+        container.style.display = 'none';
+        return;
+    }
+    
+    container.style.display = 'flex';
+    container.innerHTML = attachedFiles.map((file, index) => `
+        <div class="attached-file">
+            <span class="file-icon">📎</span>
+            <span class="file-name">${escapeHtml(file.name)}</span>
+            <button class="remove-file" onclick="removeAttachedFile(${index})">×</button>
+        </div>
+    `).join('');
+}
+
+function removeAttachedFile(index) {
+    attachedFiles.splice(index, 1);
+    displayAttachedFiles();
+}
+
+async function uploadFiles() {
+    if (attachedFiles.length === 0) return null;
+    
+    const uploadedFiles = [];
+    
+    for (const file of attachedFiles) {
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        try {
+            const response = await fetch(`${API_BASE}/api/v1/files/upload`, {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                uploadedFiles.push({
+                    file_id: data.file_id,
+                    filename: file.name
+                });
+            }
+        } catch (error) {
+            console.error('Upload error:', error);
+        }
+    }
+    
+    return uploadedFiles.length > 0 ? uploadedFiles : null;
+}
+
+// ============================================================================
+// CODE EXECUTION
 // ============================================================================
 
 function detectCodeExecution(message) {
@@ -415,12 +641,9 @@ function addRunButtons() {
 }
 
 // ============================================================================
-// STEP 51: EXPORT CONVERSATIONS
+// EXPORT CONVERSATIONS
 // ============================================================================
 
-/**
- * Export a conversation in the specified format
- */
 async function exportConversation(convId, format = 'md') {
     try {
         const response = await fetch(
@@ -429,7 +652,6 @@ async function exportConversation(convId, format = 'md') {
         
         if (!response.ok) throw new Error('Export failed');
         
-        // Get filename from header
         const disposition = response.headers.get('Content-Disposition');
         let filename = `conversation.${format}`;
         if (disposition) {
@@ -437,7 +659,6 @@ async function exportConversation(convId, format = 'md') {
             if (match) filename = match[1];
         }
         
-        // Trigger download
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -454,9 +675,6 @@ async function exportConversation(convId, format = 'md') {
     }
 }
 
-/**
- * Export all conversations as backup JSON
- */
 async function exportAllConversations() {
     try {
         const response = await fetch(`${API_BASE}/api/v1/conversations/export/all`);
@@ -478,11 +696,7 @@ async function exportAllConversations() {
     }
 }
 
-/**
- * Show export format picker menu
- */
 function showExportMenu(convId, buttonElement) {
-    // Remove any existing menu
     const existing = document.querySelector('.export-menu');
     if (existing) existing.remove();
     
@@ -508,7 +722,6 @@ function showExportMenu(convId, buttonElement) {
     
     document.body.appendChild(menu);
     
-    // Close on outside click
     setTimeout(() => {
         document.addEventListener('click', function closeMenu(e) {
             if (!menu.contains(e.target) && e.target !== buttonElement) {
@@ -520,19 +733,15 @@ function showExportMenu(convId, buttonElement) {
 }
 
 // ============================================================================
-// STEP 52: EDIT & DELETE MESSAGES
+// EDIT & DELETE MESSAGES
 // ============================================================================
 
-/**
- * Edit a user message inline
- */
 function editMessage(buttonElement) {
     const messageDiv = buttonElement.closest('.message');
     const contentDiv = messageDiv.querySelector('.message-content');
     const messageId = messageDiv.dataset.messageId;
     const originalText = contentDiv.textContent;
     
-    // Replace content with textarea
     contentDiv.innerHTML = `
         <textarea class="edit-textarea" rows="3">${escapeHtml(originalText)}</textarea>
         <div class="edit-actions">
@@ -546,9 +755,6 @@ function editMessage(buttonElement) {
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
 }
 
-/**
- * Save edited message and re-generate AI response
- */
 async function saveEdit(messageId, buttonElement) {
     const messageDiv = buttonElement.closest('.message');
     const textarea = messageDiv.querySelector('.edit-textarea');
@@ -559,17 +765,14 @@ async function saveEdit(messageId, buttonElement) {
     const contentDiv = messageDiv.querySelector('.message-content');
     contentDiv.textContent = newContent;
     
-    // If we have a message ID, update on server and delete messages after this one
     if (messageId && messageId !== 'null') {
         try {
-            // Update the message
             await fetch(`${API_BASE}/api/v1/messages/${messageId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ content: newContent })
             });
             
-            // Delete all messages after this one (AI responses)
             await fetch(`${API_BASE}/api/v1/messages/${messageId}/and-after`, {
                 method: 'DELETE'
             });
@@ -578,7 +781,6 @@ async function saveEdit(messageId, buttonElement) {
         }
     }
     
-    // Remove all messages after the edited one in the UI
     let nextSibling = messageDiv.nextElementSibling;
     while (nextSibling) {
         const toRemove = nextSibling;
@@ -586,7 +788,6 @@ async function saveEdit(messageId, buttonElement) {
         toRemove.remove();
     }
     
-    // Re-send the edited message to get a new AI response
     addTypingIndicator();
     
     try {
@@ -614,17 +815,11 @@ async function saveEdit(messageId, buttonElement) {
     }
 }
 
-/**
- * Cancel message edit
- */
 function cancelEdit(buttonElement, originalText) {
     const contentDiv = buttonElement.closest('.message-content');
     contentDiv.textContent = originalText;
 }
 
-/**
- * Delete a single message
- */
 async function deleteMessage(messageId, buttonElement) {
     if (!confirm('Delete this message?')) return;
     
@@ -640,38 +835,33 @@ async function deleteMessage(messageId, buttonElement) {
         }
     }
     
-    // Fade out and remove
     messageDiv.style.opacity = '0';
     messageDiv.style.transition = 'opacity 0.3s';
     setTimeout(() => messageDiv.remove(), 300);
 }
 
 // ============================================================================
-// STEP 53: KEYBOARD SHORTCUTS
+// KEYBOARD SHORTCUTS
 // ============================================================================
 
 document.addEventListener('keydown', (e) => {
-    // Ctrl+N / Cmd+N → New conversation
     if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
         e.preventDefault();
         startNewConversation();
     }
     
-    // Ctrl+/ / Cmd+/ → Focus search
     if ((e.ctrlKey || e.metaKey) && e.key === '/') {
         e.preventDefault();
         const search = document.getElementById('conversationSearch') || document.getElementById('searchInput');
         if (search) search.focus();
     }
     
-    // Ctrl+Shift+D → Toggle dark mode
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'D') {
         e.preventDefault();
         if (typeof toggleDarkMode === 'function') toggleDarkMode();
         if (typeof toggleTheme === 'function') toggleTheme();
     }
     
-    // Ctrl+E → Export current conversation
     if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
         e.preventDefault();
         if (conversationId) {
@@ -679,7 +869,6 @@ document.addEventListener('keydown', (e) => {
         }
     }
     
-    // Escape → Close any open menus/modals
     if (e.key === 'Escape') {
         const exportMenu = document.querySelector('.export-menu');
         if (exportMenu) exportMenu.remove();
@@ -687,14 +876,12 @@ document.addEventListener('keydown', (e) => {
         const modal = document.querySelector('.modal-overlay');
         if (modal) modal.remove();
         
-        // Close mobile sidebar
         const sidebar = document.querySelector('.sidebar');
         if (sidebar && sidebar.classList.contains('open')) {
             toggleSidebar();
         }
     }
     
-    // ? → Show shortcuts help (only when not typing in input)
     if (e.key === '?' && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
         e.preventDefault();
         toggleShortcutsHelp();
@@ -729,14 +916,11 @@ function toggleShortcutsHelp() {
 }
 
 // ============================================================================
-// STEP 54: FULL-TEXT SEARCH
+// FULL-TEXT SEARCH
 // ============================================================================
 
 let searchDebounceTimer = null;
 
-/**
- * Search across all messages in all conversations
- */
 async function searchAllMessages(query) {
     if (!query || query.trim().length < 2) {
         hideSearchResults();
@@ -757,7 +941,6 @@ async function searchAllMessages(query) {
 }
 
 function displaySearchResults(results, query) {
-    // Remove existing results
     hideSearchResults();
     
     if (results.length === 0) {
@@ -772,7 +955,6 @@ function displaySearchResults(results, query) {
         const item = document.createElement('div');
         item.className = 'search-result-item';
         
-        // Highlight matching text
         const preview = result.content_preview;
         const highlighted = highlightSearchTerm(preview, query);
         
@@ -790,7 +972,6 @@ function displaySearchResults(results, query) {
         dropdown.appendChild(item);
     });
     
-    // Position below search input
     const searchInput = document.getElementById('conversationSearch') || document.getElementById('searchInput');
     if (searchInput) {
         searchInput.parentElement.style.position = 'relative';
@@ -809,9 +990,6 @@ function highlightSearchTerm(text, term) {
     return escapeHtml(text).replace(regex, '<mark>$1</mark>');
 }
 
-/**
- * Debounced search handler - attach to your search input
- */
 function handleSearchInput(event) {
     const query = event.target.value.trim();
     
@@ -828,7 +1006,7 @@ function handleSearchInput(event) {
 }
 
 // ============================================================================
-// STEP 55: MOBILE SIDEBAR TOGGLE
+// MOBILE SIDEBAR TOGGLE
 // ============================================================================
 
 function toggleSidebar() {
@@ -839,7 +1017,6 @@ function toggleSidebar() {
     if (overlay) overlay.classList.toggle('show');
 }
 
-// Close sidebar when selecting a conversation on mobile
 function closeSidebarOnMobile() {
     if (window.innerWidth <= 768) {
         const sidebar = document.querySelector('.sidebar');
@@ -848,6 +1025,24 @@ function closeSidebarOnMobile() {
         if (overlay) overlay.classList.remove('show');
     }
 }
+
+// ============================================================================
+// THEME TOGGLE
+// ============================================================================
+
+function toggleTheme() {
+    document.body.classList.toggle('light-mode');
+    const isLight = document.body.classList.contains('light-mode');
+    localStorage.setItem('omniai-theme', isLight ? 'light' : 'dark');
+}
+
+// Load saved theme
+(function() {
+    const savedTheme = localStorage.getItem('omniai-theme');
+    if (savedTheme === 'light') {
+        document.body.classList.add('light-mode');
+    }
+})();
 
 // ============================================================================
 // SEND MESSAGE
@@ -861,7 +1056,6 @@ async function sendMessage() {
     
     if (!message && attachedFiles.length === 0) return;
     
-    // Handle file uploads first
     let uploadedFilesList = null;
     if (attachedFiles.length > 0) {
         uploadedFilesList = await uploadFiles();
@@ -879,7 +1073,6 @@ async function sendMessage() {
         return;
     }
     
-    // Check for code execution request
     if (message && detectCodeExecution(message)) {
         const code = extractCodeFromMessage(message);
         
@@ -895,11 +1088,10 @@ async function sendMessage() {
         }
     }
     
-    // Normal message flow
     addTypingIndicator();
     
     const sendButton = document.getElementById('sendButton');
-    sendButton.disabled = true;
+    if (sendButton) sendButton.disabled = true;
     
     try {
         const requestBody = {
@@ -934,7 +1126,7 @@ async function sendMessage() {
         removeTypingIndicator();
         streamAssistantMessage('⚠️ Could not connect to server.');
     } finally {
-        sendButton.disabled = false;
+        if (sendButton) sendButton.disabled = false;
     }
 }
 
@@ -981,45 +1173,6 @@ async function regenerateResponse(messageId) {
     }
 }
 
-async function regenerateWithModel(messageId, model) {
-    if (!conversationId || !messageId) return;
-    
-    const messageDiv = document.querySelector(`[data-message-id="${messageId}"]`);
-    if (!messageDiv) return;
-    
-    const contentDiv = messageDiv.querySelector('.message-content');
-    const originalContent = contentDiv.innerHTML;
-    contentDiv.style.opacity = '0.5';
-    
-    const buttons = messageDiv.querySelectorAll('.regenerate-btn');
-    buttons.forEach(btn => btn.disabled = true);
-    
-    try {
-        const response = await fetch(`${API_BASE}/api/v1/chat/regenerate`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                conversation_id: conversationId,
-                message_id: messageId,
-                model: model
-            })
-        });
-        
-        if (!response.ok) throw new Error('Regeneration failed');
-        
-        const data = await response.json();
-        contentDiv.innerHTML = '';
-        streamTextIntoElement(data.response, contentDiv);
-        
-    } catch (error) {
-        console.error('Error:', error);
-        contentDiv.innerHTML = originalContent;
-        contentDiv.style.opacity = '1';
-    } finally {
-        buttons.forEach(btn => btn.disabled = false);
-    }
-}
-
 // ============================================================================
 // FEEDBACK
 // ============================================================================
@@ -1045,12 +1198,12 @@ async function submitFeedback(messageId, rating) {
             const thumbsUpBtn = messageDiv.querySelector('.thumbs-up');
             const thumbsDownBtn = messageDiv.querySelector('.thumbs-down');
             
-            thumbsUpBtn.classList.remove('active');
-            thumbsDownBtn.classList.remove('active');
+            if (thumbsUpBtn) thumbsUpBtn.classList.remove('active');
+            if (thumbsDownBtn) thumbsDownBtn.classList.remove('active');
             
-            if (rating === 1) {
+            if (rating === 1 && thumbsUpBtn) {
                 thumbsUpBtn.classList.add('active');
-            } else {
+            } else if (thumbsDownBtn) {
                 thumbsDownBtn.classList.add('active');
             }
         }
@@ -1059,27 +1212,3 @@ async function submitFeedback(messageId, rating) {
         console.error('Feedback error:', error);
     }
 }
-
-// ============================================================================
-// NOTE: KEEP YOUR EXISTING FUNCTIONS BELOW THIS LINE
-// ============================================================================
-// The following functions should already exist in your app.js from previous
-// steps. If they're in a separate section of your file, keep them as-is:
-//
-// - loadConversations()
-// - loadConversation(id)
-// - startNewConversation()
-// - deleteConversation(id)
-// - renameConversation(id)
-// - toggleDarkMode() / toggleTheme()
-// - attachedFiles, uploadFiles(), displayAttachedFiles()
-//
-// IMPORTANT: In your loadConversations() function, add the export button
-// to each conversation item in the sidebar. Look for where you create
-// conversation items and add:
-//
-//   <button class="conv-action-btn" onclick="event.stopPropagation(); showExportMenu('${conv.id}', this)" title="Export">📥</button>
-//
-// Also in loadConversation(), add closeSidebarOnMobile() call at the end
-// so the sidebar closes when user picks a conversation on mobile.
-// ============================================================================
