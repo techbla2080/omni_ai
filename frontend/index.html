@@ -164,6 +164,19 @@
 
     <!-- Auth Check + User Menu (Step 61) -->
     <script>
+        // Textarea helpers
+        function handleKeyPress(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
+        }
+
+        function autoResize(textarea) {
+            textarea.style.height = 'auto';
+            textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+        }
+
         // Check authentication on page load
         (async function() {
             if (!isAuthenticated()) {
