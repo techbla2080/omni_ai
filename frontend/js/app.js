@@ -7,9 +7,9 @@ const API_BASE = window.location.hostname === 'localhost'
     ? 'http://localhost:8000' 
     : '';
 
-let conversationId = null;
-let isStreaming = false;
-let attachedFiles = [];
+var conversationId = null;
+var isStreaming = false;
+var attachedFiles = [];
 
 // ============================================================================
 // INITIALIZATION
@@ -35,17 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // UTILITY FUNCTIONS
 // ============================================================================
 
-function handleKeyPress(event) {
-    if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault();
-        sendMessage();
-    }
-}
-
-function autoResize(textarea) {
-    textarea.style.height = 'auto';
-    textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
-}
+// NOTE: handleKeyPress and autoResize are defined in index.html inline script
 
 function useSuggestion(text) {
     document.getElementById('messageInput').value = text;
@@ -438,7 +428,7 @@ function handleFileSelect(event) {
 }
 
 function displayAttachedFiles() {
-    let container = document.getElementById('attachedFilesContainer');
+    var container = document.getElementById('attachedFilesContainer');
     
     if (!container) {
         container = document.createElement('div');
@@ -919,7 +909,7 @@ function toggleShortcutsHelp() {
 // FULL-TEXT SEARCH
 // ============================================================================
 
-let searchDebounceTimer = null;
+var searchDebounceTimer = null;
 
 async function searchAllMessages(query) {
     if (!query || query.trim().length < 2) {
@@ -1056,7 +1046,7 @@ async function sendMessage() {
     
     if (!message && attachedFiles.length === 0) return;
     
-    let uploadedFilesList = null;
+    var uploadedFilesList = null;
     if (attachedFiles.length > 0) {
         uploadedFilesList = await uploadFiles();
         if (uploadedFilesList === null) return;
