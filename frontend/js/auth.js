@@ -9,9 +9,10 @@
  * 4. login() - fetches user profile after login (backend doesn't return user object)
  * 5. changePassword() - fixed URL to /auth/me/password with PUT method
  * 6. updateProfile() - sends JSON body instead of query param
+ * 7. Renamed API_BASE to AUTH_API_BASE to avoid conflict with app.js
  */
 
-const API_BASE = '/api/v1';
+const AUTH_API_BASE = '/api/v1';
 
 // ============================================================================
 // TOKEN MANAGEMENT (Step 60)
@@ -100,7 +101,7 @@ async function refreshAccessToken() {
     if (!refreshToken) return false;
     
     try {
-        const response = await fetch(`${API_BASE}/auth/refresh`, {
+        const response = await fetch(`${AUTH_API_BASE}/auth/refresh`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ refresh_token: refreshToken })
@@ -142,7 +143,7 @@ async function login(email, password, rememberMe = false) {
     hideError();
     
     try {
-        const response = await fetch(`${API_BASE}/auth/login`, {
+        const response = await fetch(`${AUTH_API_BASE}/auth/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password })
@@ -155,7 +156,7 @@ async function login(email, password, rememberMe = false) {
             
             // Fetch user profile (backend doesn't return user in login response)
             try {
-                const profileRes = await fetch(`${API_BASE}/auth/me`, {
+                const profileRes = await fetch(`${AUTH_API_BASE}/auth/me`, {
                     headers: { 'Authorization': `Bearer ${data.access_token}` }
                 });
                 if (profileRes.ok) {
@@ -186,7 +187,7 @@ async function login(email, password, rememberMe = false) {
 }
 
 function loginWithGoogle() {
-    window.location.href = `${API_BASE}/auth/google`;
+    window.location.href = `${AUTH_API_BASE}/auth/google`;
 }
 
 // ============================================================================
@@ -198,7 +199,7 @@ async function register(name, email, password) {
     hideError();
     
     try {
-        const response = await fetch(`${API_BASE}/auth/register`, {
+        const response = await fetch(`${AUTH_API_BASE}/auth/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name, email, password })
@@ -211,7 +212,7 @@ async function register(name, email, password) {
             
             // Fetch profile after register
             try {
-                const profileRes = await fetch(`${API_BASE}/auth/me`, {
+                const profileRes = await fetch(`${AUTH_API_BASE}/auth/me`, {
                     headers: { 'Authorization': `Bearer ${data.access_token}` }
                 });
                 if (profileRes.ok) {
@@ -282,7 +283,7 @@ async function forgotPassword(email) {
     hideError();
     
     try {
-        const response = await fetch(`${API_BASE}/auth/forgot-password`, {
+        const response = await fetch(`${AUTH_API_BASE}/auth/forgot-password`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email })
@@ -292,7 +293,7 @@ async function forgotPassword(email) {
         
         if (response.ok) {
             showSuccess(data.message || 'If an account exists, you will receive a reset email.');
-            return data; // Return full response so caller can access dev_reset_token
+            return data;
         } else {
             showSuccess('If an account exists, you will receive a reset email.');
             return null;
@@ -311,7 +312,7 @@ async function resetPassword(token, newPassword) {
     hideError();
     
     try {
-        const response = await fetch(`${API_BASE}/auth/reset-password`, {
+        const response = await fetch(`${AUTH_API_BASE}/auth/reset-password`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ token, new_password: newPassword })
@@ -344,7 +345,7 @@ async function resetPassword(token, newPassword) {
 
 async function getProfile() {
     try {
-        const response = await authFetch(`${API_BASE}/auth/me`);
+        const response = await authFetch(`${AUTH_API_BASE}/auth/me`);
         if (response.ok) {
             const user = await response.json();
             storeUser(user);
@@ -365,14 +366,14 @@ async function updateProfile(name) {
     hideError();
     
     try {
-        const response = await authFetch(`${API_BASE}/auth/me`, {
+        const response = await authFetch(`${AUTH_API_BASE}/auth/me`, {
             method: 'PUT',
             body: JSON.stringify({ name })
         });
         
         if (response.ok) {
             const result = await response.json();
-            await getProfile(); // Re-fetch to update stored user
+            await getProfile();
             showSuccess('Profile updated!');
             return result;
         } else {
@@ -397,7 +398,7 @@ async function changePassword(currentPassword, newPassword) {
     hideError();
     
     try {
-        const response = await authFetch(`${API_BASE}/auth/me/password`, {
+        const response = await authFetch(`${AUTH_API_BASE}/auth/me/password`, {
             method: 'PUT',
             body: JSON.stringify({
                 current_password: currentPassword,
@@ -424,7 +425,7 @@ async function changePassword(currentPassword, newPassword) {
 
 async function getPreferences() {
     try {
-        const response = await authFetch(`${API_BASE}/auth/me/preferences`);
+        const response = await authFetch(`${AUTH_API_BASE}/auth/me/preferences`);
         if (response.ok) return await response.json();
         return null;
     } catch (error) {
@@ -435,7 +436,7 @@ async function getPreferences() {
 
 async function updatePreferences(preferences) {
     try {
-        const response = await authFetch(`${API_BASE}/auth/me/preferences`, {
+        const response = await authFetch(`${AUTH_API_BASE}/auth/me/preferences`, {
             method: 'PUT',
             body: JSON.stringify(preferences)
         });
