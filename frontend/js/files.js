@@ -2,9 +2,9 @@
 // OmniAI - File Management (Step 46 + Step 49 Search)
 // ============================================================================
 
-let uploadedFiles = [];
-let attachedFiles = [];
-let searchTimeout = null;
+var uploadedFiles = [];
+// NOTE: attachedFiles is declared in app.js — do NOT redeclare here
+var searchTimeout = null;
 
 /**
  * Toggle files panel visibility
@@ -52,9 +52,8 @@ function renderFiles() {
     const container = document.getElementById('filesList');
     const filter = document.getElementById('fileTypeFilter').value;
     
-    let filtered = uploadedFiles;
+    var filtered = uploadedFiles;
     
-    // Apply filter
     if (filter) {
         filtered = uploadedFiles.filter(file => file.file_type === filter);
     }
@@ -390,7 +389,7 @@ async function performFileSearch(query) {
     container.innerHTML = '<div class="empty-state">🔍 Searching...</div>';
     
     try {
-        let url = `${API_BASE}/api/v1/files/search?q=${encodeURIComponent(query)}`;
+        var url = `${API_BASE}/api/v1/files/search?q=${encodeURIComponent(query)}`;
         if (filter) {
             url += `&file_type=${filter}`;
         }
