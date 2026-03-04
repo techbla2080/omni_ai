@@ -101,6 +101,7 @@ async function loadConversations() {
                     ${new Date(conv.updated_at).toLocaleDateString()}
                 </div>
                 <div class="conversation-actions">
+                    <button class="conv-action-btn" onclick="event.stopPropagation(); renameConversation('${conv.id}', this.closest('.conversation-item').querySelector('.conversation-title'))" title="Rename">✏️</button>
                     <button class="conv-action-btn" onclick="event.stopPropagation(); showExportMenu('${conv.id}', this)" title="Export">📥</button>
                     <button class="conv-action-btn" onclick="event.stopPropagation(); deleteConversation('${conv.id}')" title="Delete">🗑️</button>
                 </div>
