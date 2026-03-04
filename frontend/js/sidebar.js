@@ -29,7 +29,7 @@ function toggleSidebar() {
  */
 async function loadConversations() {
     try {
-        const response = await fetch(`${API_BASE}/api/v1/chat/conversations?limit=50`);
+        const response = await authFetch('/api/v1/chat/conversations?limit=50');
         if (!response.ok) throw new Error('Failed to load conversations');
         
         const data = await response.json();
@@ -81,7 +81,7 @@ async function selectConversation(convId) {
     }
     
     try {
-        const response = await fetch(`${API_BASE}/api/v1/chat/conversations/${convId}`);
+        const response = await authFetch('/api/v1/chat/conversations/' + convId);
         if (!response.ok) throw new Error('Failed to load messages');
         
         const data = await response.json();
@@ -162,7 +162,7 @@ async function deleteConversation(event, convId) {
     if (!confirm('Delete this conversation?')) return;
     
     try {
-        const response = await fetch(`${API_BASE}/api/v1/chat/conversations/${convId}`, {
+        const response = await authFetch('/api/v1/chat/conversations/' + convId, {
             method: 'DELETE'
         });
         
@@ -204,7 +204,7 @@ async function editTitle(event, convId) {
         const newTitle = input.value.trim() || currentTitle;
         
         try {
-            await fetch(`${API_BASE}/api/v1/chat/conversations/${convId}/title`, {
+            await authFetch('/api/v1/chat/conversations/' + convId + '/title', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ title: newTitle })
