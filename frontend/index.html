@@ -3,7 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OmniAI - Conversational AI</title>
+    <title>OmniAI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -11,16 +14,25 @@
     <div class="header">
         <div class="header-left">
             <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
-            <div class="logo">🚀 OmniAI</div>
+            <div class="logo">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-primary)">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                </svg>
+                OmniAI
+            </div>
         </div>
         <div class="header-right">
-            <button class="files-toggle" onclick="toggleFilesPanel()" title="My Files">📁</button>
-            <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark mode">
+            <button class="files-toggle" onclick="toggleFilesPanel()" title="Files">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                </svg>
+            </button>
+            <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
                 <span class="theme-icon" id="themeIcon">🌙</span>
             </button>
             <button class="new-chat-btn" onclick="newChat()">+ New Chat</button>
 
-            <!-- User Menu (Step 61) -->
+            <!-- User Menu -->
             <div class="user-menu" id="userMenu">
                 <button class="user-avatar-btn" id="userAvatarBtn" onclick="toggleUserMenu()" title="Account">
                     <span class="user-avatar-text" id="userAvatarText">?</span>
@@ -31,35 +43,32 @@
                         <span class="dropdown-email" id="dropdownEmail">user@email.com</span>
                     </div>
                     <div class="user-dropdown-divider"></div>
-                    <a href="profile.html" class="user-dropdown-item">👤 Profile & Settings</a>
-                    <button class="user-dropdown-item logout-item" onclick="logout()">🚪 Logout</button>
+                    <a href="profile.html" class="user-dropdown-item">Profile & Settings</a>
+                    <button class="user-dropdown-item logout-item" onclick="logout()">Log out</button>
                 </div>
             </div>
         </div>
     </div>
 
     <div class="main-container">
-        <!-- Sidebar - Conversations -->
+        <!-- Sidebar -->
         <div class="sidebar" id="sidebar">
             <div class="sidebar-header">
-                <div class="sidebar-title">💬 Conversations</div>
-                <input 
-                    type="text" 
-                    class="search-box" 
-                    placeholder="Search chats..."
-                    id="searchBox"
-                    oninput="searchConversations()"
-                >
+                <div class="sidebar-title">Conversations</div>
+                <input type="text" class="search-box" placeholder="Search chats..." id="searchBox" oninput="searchConversations()">
             </div>
             <div class="conversations-list" id="conversationsList">
                 <div class="empty-state">No conversations yet.<br>Start chatting to create one!</div>
             </div>
         </div>
 
+        <!-- Sidebar overlay (mobile) -->
+        <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
         <!-- Files Panel -->
         <div class="files-panel hidden" id="filesPanel">
             <div class="files-panel-header">
-                <div class="files-panel-title">📁 My Files</div>
+                <div class="files-panel-title">Files</div>
                 <select id="fileTypeFilter" onchange="filterFiles()">
                     <option value="">All Types</option>
                     <option value="document">Documents</option>
@@ -68,18 +77,9 @@
                     <option value="code">Code</option>
                 </select>
             </div>
-            
-            <!-- NEW: File Search Box (Step 49) -->
             <div class="files-search">
-                <input 
-                    type="text" 
-                    id="fileSearchInput" 
-                    class="file-search-input"
-                    placeholder="🔍 Search file contents..."
-                    oninput="searchFiles()"
-                >
+                <input type="text" id="fileSearchInput" class="file-search-input" placeholder="Search file contents..." oninput="searchFiles()">
             </div>
-            
             <div class="files-list" id="filesList">
                 <div class="empty-state">No files uploaded yet.</div>
             </div>
@@ -90,25 +90,25 @@
         <div class="chat-area">
             <div class="messages-container" id="messagesContainer">
                 <div class="welcome" id="welcome">
-                    <h1>How can I help you today?</h1>
-                    <p>I'm OmniAI, your intelligent assistant with memory. I can help with emails, calendar, research, coding, and more.</p>
+                    <h1>What can I help you with?</h1>
+                    <p>I'm OmniAI — your intelligent assistant. I can help with writing, coding, research, planning, and more.</p>
                     
                     <div class="suggestions">
                         <div class="suggestion-card" onclick="useSuggestion('What can you do?')">
-                            <div class="suggestion-title">💡 Discover capabilities</div>
-                            <div class="suggestion-text">See all my features</div>
+                            <div class="suggestion-title">Discover capabilities</div>
+                            <div class="suggestion-text">See everything I can help with</div>
                         </div>
                         <div class="suggestion-card" onclick="useSuggestion('Help me write Python code')">
-                            <div class="suggestion-title">💻 Code assistance</div>
-                            <div class="suggestion-text">Generate and debug code</div>
+                            <div class="suggestion-title">Write code</div>
+                            <div class="suggestion-text">Generate, debug, and explain</div>
                         </div>
                         <div class="suggestion-card" onclick="useSuggestion('Explain quantum computing')">
-                            <div class="suggestion-title">🔍 Research & explain</div>
-                            <div class="suggestion-text">Deep dive into topics</div>
+                            <div class="suggestion-title">Research a topic</div>
+                            <div class="suggestion-text">Deep dive into any subject</div>
                         </div>
                         <div class="suggestion-card" onclick="useSuggestion('Plan a trip to Paris')">
-                            <div class="suggestion-title">✈️ Travel planning</div>
-                            <div class="suggestion-text">Create itineraries</div>
+                            <div class="suggestion-title">Plan something</div>
+                            <div class="suggestion-text">Trips, projects, events</div>
                         </div>
                     </div>
                 </div>
@@ -116,37 +116,26 @@
 
             <div class="input-area">
                 <div class="input-wrapper">
-                    <!-- Hidden file input -->
-                    <input 
-                        type="file" 
-                        id="fileInput" 
-                        style="display: none;" 
-                        multiple
+                    <input type="file" id="fileInput" style="display: none;" multiple
                         accept=".pdf,.doc,.docx,.txt,.md,.png,.jpg,.jpeg,.gif,.webp,.xlsx,.xls,.csv,.py,.js,.json,.html,.css"
-                        onchange="handleFileSelect(event)"
-                    >
+                        onchange="handleFileSelect(event)">
                     
-                    <!-- Attached files preview -->
                     <div class="attached-files-container" id="attachedFilesContainer" style="display: none;">
                         <div class="attached-files" id="attachedFiles"></div>
                     </div>
                     
-                    <!-- Input container -->
                     <div class="input-container">
                         <button class="attach-button" onclick="triggerFileUpload()" title="Attach files">
-                            📎
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                            </svg>
                         </button>
-                        <textarea 
-                            class="message-input" 
-                            id="messageInput" 
-                            placeholder="Message OmniAI..."
-                            rows="1"
-                            onkeydown="handleKeyPress(event)"
-                            oninput="autoResize(this)"
-                        ></textarea>
+                        <textarea class="message-input" id="messageInput" placeholder="Message OmniAI..." rows="1"
+                            onkeydown="handleKeyPress(event)" oninput="autoResize(this)"></textarea>
                         <button class="send-button" id="sendButton" onclick="sendMessage()">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="22" y1="2" x2="11" y2="13"/>
+                                <polygon points="22 2 15 22 11 13 2 9 22 2"/>
                             </svg>
                         </button>
                     </div>
@@ -155,16 +144,14 @@
         </div>
     </div>
 
-    <!-- Scripts (ORDER MATTERS! auth.js must load first) -->
+    <!-- Scripts -->
     <script src="js/auth.js"></script>
     <script src="js/theme.js"></script>
     <script src="js/sidebar.js"></script>
     <script src="js/files.js"></script>
     <script src="js/app.js"></script>
 
-    <!-- Auth Check + User Menu (Step 61) -->
     <script>
-        // Textarea helpers
         function handleKeyPress(event) {
             if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
@@ -177,14 +164,11 @@
             textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
         }
 
-        // Check authentication on page load
         (async function() {
             if (!isAuthenticated()) {
                 window.location.href = 'login.html';
                 return;
             }
-
-            // Load user info for the avatar menu
             try {
                 const response = await authFetch('/api/v1/auth/me');
                 if (response.ok) {
@@ -194,8 +178,6 @@
                     document.getElementById('dropdownName').textContent = user.name || 'User';
                     document.getElementById('dropdownEmail').textContent = user.email;
                     storeUser(user);
-
-                    // Load and apply user preferences
                     const prefResponse = await authFetch('/api/v1/auth/me/preferences');
                     if (prefResponse.ok) {
                         const prefs = await prefResponse.json();
@@ -214,13 +196,10 @@
             }
         })();
 
-        // Toggle user dropdown menu
         function toggleUserMenu() {
-            const dropdown = document.getElementById('userDropdown');
-            dropdown.classList.toggle('show');
+            document.getElementById('userDropdown').classList.toggle('show');
         }
 
-        // Close dropdown when clicking outside
         document.addEventListener('click', (e) => {
             const menu = document.getElementById('userMenu');
             const dropdown = document.getElementById('userDropdown');
@@ -229,125 +208,5 @@
             }
         });
     </script>
-
-    <!-- User Menu Styles -->
-    <style>
-        /* User Avatar Button */
-        .user-menu {
-            position: relative;
-        }
-
-        .user-avatar-btn {
-            width: 36px;
-            height: 36px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
-            border: none;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-
-        .user-avatar-btn:hover {
-            transform: scale(1.05);
-            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.3);
-        }
-
-        .user-avatar-text {
-            color: white;
-            font-size: 15px;
-            font-weight: 600;
-            font-family: 'Inter', -apple-system, sans-serif;
-        }
-
-        /* Dropdown */
-        .user-dropdown {
-            position: absolute;
-            top: calc(100% + 8px);
-            right: 0;
-            min-width: 220px;
-            background: #161b22;
-            border: 1px solid #30363d;
-            border-radius: 10px;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-            opacity: 0;
-            visibility: hidden;
-            transform: translateY(-8px);
-            transition: opacity 0.2s, transform 0.2s, visibility 0.2s;
-            z-index: 1000;
-            overflow: hidden;
-        }
-
-        .user-dropdown.show {
-            opacity: 1;
-            visibility: visible;
-            transform: translateY(0);
-        }
-
-        .user-dropdown-header {
-            padding: 14px 16px;
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-        }
-
-        .dropdown-name {
-            font-size: 14px;
-            font-weight: 600;
-            color: #ffffff;
-        }
-
-        .dropdown-email {
-            font-size: 12px;
-            color: #8b949e;
-        }
-
-        .user-dropdown-divider {
-            height: 1px;
-            background: #21262d;
-        }
-
-        .user-dropdown-item {
-            display: block;
-            width: 100%;
-            padding: 10px 16px;
-            font-size: 14px;
-            color: #c9d1d9;
-            background: none;
-            border: none;
-            text-align: left;
-            cursor: pointer;
-            text-decoration: none;
-            transition: background 0.15s;
-        }
-
-        .user-dropdown-item:hover {
-            background: #21262d;
-        }
-
-        .logout-item {
-            color: #f85149;
-        }
-
-        .logout-item:hover {
-            background: rgba(248, 81, 73, 0.1);
-        }
-
-        /* Light mode overrides */
-        .light-mode .user-dropdown {
-            background: #ffffff;
-            border-color: #d1d5db;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-        }
-
-        .light-mode .dropdown-name { color: #1f2937; }
-        .light-mode .dropdown-email { color: #6b7280; }
-        .light-mode .user-dropdown-divider { background: #e5e7eb; }
-        .light-mode .user-dropdown-item { color: #374151; }
-        .light-mode .user-dropdown-item:hover { background: #f3f4f6; }
-        .light-mode .logout-item { color: #f85149; }
-    </style>
 </body>
 </html>

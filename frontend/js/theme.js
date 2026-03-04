@@ -6,8 +6,14 @@
  * Initialize theme on page load
  */
 function initTheme() {
-    const savedTheme = localStorage.getItem('theme') || 'light';
-    document.documentElement.setAttribute('data-theme', savedTheme);
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    
+    if (savedTheme === 'light') {
+        document.body.classList.add('light-mode');
+    } else {
+        document.body.classList.remove('light-mode');
+    }
+    
     updateThemeIcon(savedTheme);
 }
 
@@ -15,10 +21,15 @@ function initTheme() {
  * Toggle between light and dark theme
  */
 function toggleTheme() {
-    const currentTheme = document.documentElement.getAttribute('data-theme');
-    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    const isLight = document.body.classList.contains('light-mode');
+    const newTheme = isLight ? 'dark' : 'light';
     
-    document.documentElement.setAttribute('data-theme', newTheme);
+    if (newTheme === 'light') {
+        document.body.classList.add('light-mode');
+    } else {
+        document.body.classList.remove('light-mode');
+    }
+    
     localStorage.setItem('theme', newTheme);
     updateThemeIcon(newTheme);
 }
@@ -30,7 +41,7 @@ function toggleTheme() {
 function updateThemeIcon(theme) {
     const themeIcon = document.getElementById('themeIcon');
     if (themeIcon) {
-        themeIcon.textContent = theme === 'dark' ? '☀️' : '🌙';
+        themeIcon.textContent = theme === 'dark' ? '🌙' : '☀️';
     }
 }
 

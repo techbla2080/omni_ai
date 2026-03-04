@@ -3,41 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Profile - OmniAI</title>
-    <link rel="stylesheet" href="css/styles.css">
-    <link rel="stylesheet" href="css/auth.css">
+    <title>Profile — OmniAI</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/auth.css">
 </head>
 <body class="auth-body">
 
-    <!-- Top Nav -->
     <nav class="profile-nav">
         <a href="index.html" class="nav-brand">
-            <span class="logo-icon">🚀</span>
+            <span class="logo-icon">⚡</span>
             <span class="logo-text">OmniAI</span>
         </a>
         <div class="nav-actions">
             <a href="index.html" class="nav-link">← Back to Chat</a>
-            <button class="nav-logout-btn" onclick="logout()">Logout</button>
+            <button class="nav-logout-btn" onclick="logout()">Log out</button>
         </div>
     </nav>
 
-    <!-- Profile Content -->
     <div class="profile-container">
+        <div class="auth-error" id="authError" style="display: none;"><span class="error-icon">⚠️</span><span class="error-text" id="errorText"></span></div>
+        <div class="auth-success" id="authSuccess" style="display: none;"><span class="success-icon">✅</span><span class="success-text" id="successText"></span></div>
 
-        <!-- Error / Success Messages (global) -->
-        <div class="auth-error" id="authError" style="display: none;">
-            <span class="error-icon">⚠️</span>
-            <span class="error-text" id="errorText"></span>
-        </div>
-        <div class="auth-success" id="authSuccess" style="display: none;">
-            <span class="success-icon">✅</span>
-            <span class="success-text" id="successText"></span>
-        </div>
-
-        <!-- Profile Header -->
         <div class="profile-header">
             <div class="profile-avatar" id="profileAvatar">?</div>
             <div class="profile-info">
@@ -47,9 +36,8 @@
             </div>
         </div>
 
-        <!-- Section: Edit Profile -->
         <div class="profile-section">
-            <h3>👤 Edit Profile</h3>
+            <h3>Edit Profile</h3>
             <div class="profile-form">
                 <div class="form-group">
                     <label for="editName">Display Name</label>
@@ -64,31 +52,24 @@
             </div>
         </div>
 
-        <!-- Section: Change Password -->
         <div class="profile-section">
-            <h3>🔒 Change Password</h3>
+            <h3>Change Password</h3>
             <div class="profile-form">
                 <div class="form-group">
                     <label for="currentPassword">Current Password</label>
                     <div class="password-input-wrapper">
                         <input type="password" id="currentPassword" placeholder="••••••••" autocomplete="current-password">
-                        <button type="button" class="toggle-password" onclick="togglePassword('currentPassword')">
-                            <span id="currentPasswordToggleIcon">👁️</span>
-                        </button>
+                        <button type="button" class="toggle-password" onclick="togglePassword('currentPassword')"><span id="currentPasswordToggleIcon">👁️</span></button>
                     </div>
                 </div>
                 <div class="form-group">
                     <label for="newPassword">New Password</label>
                     <div class="password-input-wrapper">
                         <input type="password" id="newPassword" placeholder="••••••••" autocomplete="new-password" oninput="updatePasswordStrength(this.value)">
-                        <button type="button" class="toggle-password" onclick="togglePassword('newPassword')">
-                            <span id="newPasswordToggleIcon">👁️</span>
-                        </button>
+                        <button type="button" class="toggle-password" onclick="togglePassword('newPassword')"><span id="newPasswordToggleIcon">👁️</span></button>
                     </div>
                     <div class="password-strength-container">
-                        <div class="strength-bar-bg">
-                            <div class="strength-bar" id="passwordStrength"></div>
-                        </div>
+                        <div class="strength-bar-bg"><div class="strength-bar" id="passwordStrength"></div></div>
                         <span class="strength-text" id="passwordStrengthText"></span>
                     </div>
                 </div>
@@ -96,9 +77,7 @@
                     <label for="confirmNewPassword">Confirm New Password</label>
                     <div class="password-input-wrapper">
                         <input type="password" id="confirmNewPassword" placeholder="••••••••" autocomplete="new-password" oninput="checkNewPasswordMatch()">
-                        <button type="button" class="toggle-password" onclick="togglePassword('confirmNewPassword')">
-                            <span id="confirmNewPasswordToggleIcon">👁️</span>
-                        </button>
+                        <button type="button" class="toggle-password" onclick="togglePassword('confirmNewPassword')"><span id="confirmNewPasswordToggleIcon">👁️</span></button>
                     </div>
                     <span class="password-match-text" id="newPasswordMatchText"></span>
                 </div>
@@ -111,15 +90,14 @@
             </div>
         </div>
 
-        <!-- Section: Preferences (Step 62) -->
         <div class="profile-section">
-            <h3>⚙️ Preferences</h3>
+            <h3>Preferences</h3>
             <div class="profile-form">
                 <div class="form-group">
                     <label for="prefTheme">Theme</label>
                     <select id="prefTheme" class="pref-select">
-                        <option value="dark">🌙 Dark</option>
-                        <option value="light">☀️ Light</option>
+                        <option value="dark">Dark</option>
+                        <option value="light">Light</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -156,16 +134,13 @@
             </div>
         </div>
 
-        <!-- Section: Danger Zone -->
         <div class="profile-section danger-section">
-            <h3>⚠️ Danger Zone</h3>
+            <h3>Danger Zone</h3>
             <p class="danger-text">Once you delete your account, all your conversations, files, and data will be permanently removed. This action cannot be undone.</p>
             <button class="btn-danger" id="deleteAccountBtn" onclick="handleDeleteAccount()">Delete My Account</button>
         </div>
-
     </div>
 
-    <!-- Delete Account Confirmation Modal -->
     <div class="modal-overlay" id="deleteModal" style="display: none;">
         <div class="modal-content">
             <h3>Delete Account</h3>
@@ -182,20 +157,11 @@
 
     <script src="js/auth.js"></script>
     <script>
-        // ================================================================
-        // PAGE INIT - Load profile data
-        // ================================================================
-        
         let currentUser = null;
         let currentPreferences = null;
 
         document.addEventListener('DOMContentLoaded', async () => {
-            // Check auth
-            if (!isAuthenticated()) {
-                window.location.href = 'login.html';
-                return;
-            }
-
+            if (!isAuthenticated()) { window.location.href = 'login.html'; return; }
             await loadProfile();
             await loadPreferences();
         });
@@ -203,36 +169,17 @@
         async function loadProfile() {
             try {
                 const response = await authFetch('/api/v1/auth/me');
-                if (!response.ok) {
-                    if (response.status === 401) {
-                        clearTokens();
-                        window.location.href = 'login.html';
-                        return;
-                    }
-                    throw new Error('Failed to load profile');
-                }
-
+                if (!response.ok) { if (response.status === 401) { clearTokens(); window.location.href = 'login.html'; return; } throw new Error('Failed'); }
                 currentUser = await response.json();
-
-                // Update UI
                 document.getElementById('profileName').textContent = currentUser.name || 'User';
                 document.getElementById('profileEmail').textContent = currentUser.email;
                 document.getElementById('editName').value = currentUser.name || '';
-
-                // Avatar - first letter of name
-                const initial = (currentUser.name || currentUser.email || '?')[0].toUpperCase();
-                document.getElementById('profileAvatar').textContent = initial;
-
-                // Joined date
+                document.getElementById('profileAvatar').textContent = (currentUser.name || currentUser.email || '?')[0].toUpperCase();
                 if (currentUser.created_at) {
                     const date = new Date(currentUser.created_at);
-                    document.getElementById('profileJoined').textContent = 
-                        `Joined ${date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
+                    document.getElementById('profileJoined').textContent = `Joined ${date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
                 }
-            } catch (error) {
-                console.error('Load profile error:', error);
-                showError('Failed to load profile');
-            }
+            } catch (error) { console.error('Load profile error:', error); showError('Failed to load profile'); }
         }
 
         async function loadPreferences() {
@@ -240,148 +187,59 @@
                 const response = await authFetch('/api/v1/auth/me/preferences');
                 if (response.ok) {
                     currentPreferences = await response.json();
-
-                    // Apply to form
-                    if (currentPreferences.theme) {
-                        document.getElementById('prefTheme').value = currentPreferences.theme;
-                    }
-                    if (currentPreferences.default_model) {
-                        document.getElementById('prefModel').value = currentPreferences.default_model;
-                    }
-                    if (currentPreferences.language) {
-                        document.getElementById('prefLanguage').value = currentPreferences.language;
-                    }
-                    if (currentPreferences.notifications !== undefined) {
-                        document.getElementById('prefNotifications').checked = currentPreferences.notifications;
-                    }
+                    if (currentPreferences.theme) document.getElementById('prefTheme').value = currentPreferences.theme;
+                    if (currentPreferences.default_model) document.getElementById('prefModel').value = currentPreferences.default_model;
+                    if (currentPreferences.language) document.getElementById('prefLanguage').value = currentPreferences.language;
+                    if (currentPreferences.notifications !== undefined) document.getElementById('prefNotifications').checked = currentPreferences.notifications;
                 }
-            } catch (error) {
-                console.error('Load preferences error:', error);
-            }
+            } catch (error) { console.error('Load preferences error:', error); }
         }
-
-        // ================================================================
-        // SAVE PROFILE
-        // ================================================================
 
         async function handleSaveProfile() {
             const name = document.getElementById('editName').value.trim();
-            if (!name) {
-                showError('Name cannot be empty');
-                return;
-            }
-
-            const btn = document.getElementById('saveProfileBtn');
-            btn.disabled = true;
-
+            if (!name) { showError('Name cannot be empty'); return; }
+            const btn = document.getElementById('saveProfileBtn'); btn.disabled = true;
             try {
-                const response = await authFetch('/api/v1/auth/me', {
-                    method: 'PUT',
-                    body: JSON.stringify({ name })
-                });
-
-                if (response.ok) {
-                    showSuccess('Profile updated!');
-                    // Update header display
-                    document.getElementById('profileName').textContent = name;
-                    document.getElementById('profileAvatar').textContent = name[0].toUpperCase();
-                } else {
-                    const data = await response.json();
-                    showError(data.detail || 'Update failed');
-                }
-            } catch (error) {
-                showError('Connection failed');
-            } finally {
-                btn.disabled = false;
-            }
+                const response = await authFetch('/api/v1/auth/me', { method: 'PUT', body: JSON.stringify({ name }) });
+                if (response.ok) { showSuccess('Profile updated!'); document.getElementById('profileName').textContent = name; document.getElementById('profileAvatar').textContent = name[0].toUpperCase(); }
+                else { const data = await response.json(); showError(data.detail || 'Update failed'); }
+            } catch (error) { showError('Connection failed'); } finally { btn.disabled = false; }
         }
-
-        // ================================================================
-        // CHANGE PASSWORD
-        // ================================================================
 
         function checkNewPasswordMatch() {
             const password = document.getElementById('newPassword').value;
             const confirm = document.getElementById('confirmNewPassword').value;
             const text = document.getElementById('newPasswordMatchText');
-
-            if (!confirm) {
-                text.textContent = '';
-                text.className = 'password-match-text';
-                return false;
-            }
-            if (password === confirm) {
-                text.textContent = '✓ Passwords match';
-                text.className = 'password-match-text match';
-                return true;
-            } else {
-                text.textContent = '✗ Passwords do not match';
-                text.className = 'password-match-text no-match';
-                return false;
-            }
+            if (!confirm) { text.textContent = ''; text.className = 'password-match-text'; return false; }
+            if (password === confirm) { text.textContent = '✓ Passwords match'; text.className = 'password-match-text match'; return true; }
+            else { text.textContent = '✗ Passwords do not match'; text.className = 'password-match-text no-match'; return false; }
         }
 
         async function handleChangePassword() {
             const current = document.getElementById('currentPassword').value;
             const newPass = document.getElementById('newPassword').value;
             const confirm = document.getElementById('confirmNewPassword').value;
-
-            if (!current) {
-                showError('Please enter your current password');
-                return;
-            }
-            if (!newPass) {
-                showError('Please enter a new password');
-                return;
-            }
-            if (newPass !== confirm) {
-                showError('New passwords do not match');
-                return;
-            }
-
+            if (!current) { showError('Please enter your current password'); return; }
+            if (!newPass) { showError('Please enter a new password'); return; }
+            if (newPass !== confirm) { showError('New passwords do not match'); return; }
             const validation = validatePassword(newPass);
-            if (!validation.valid) {
-                showError('New password needs: ' + validation.errors.join(', '));
-                return;
-            }
-
-            const btn = document.getElementById('changePasswordBtn');
-            btn.disabled = true;
-
+            if (!validation.valid) { showError('New password needs: ' + validation.errors.join(', ')); return; }
+            const btn = document.getElementById('changePasswordBtn'); btn.disabled = true;
             try {
-                const response = await authFetch('/api/v1/auth/me/password', {
-                    method: 'PUT',
-                    body: JSON.stringify({
-                        current_password: current,
-                        new_password: newPass
-                    })
-                });
-
+                const response = await authFetch('/api/v1/auth/me/password', { method: 'PUT', body: JSON.stringify({ current_password: current, new_password: newPass }) });
                 if (response.ok) {
                     showSuccess('Password changed successfully!');
                     document.getElementById('currentPassword').value = '';
                     document.getElementById('newPassword').value = '';
                     document.getElementById('confirmNewPassword').value = '';
                     document.getElementById('newPasswordMatchText').textContent = '';
-                    // Reset strength bar
                     const bar = document.getElementById('passwordStrength');
                     const text = document.getElementById('passwordStrengthText');
                     if (bar) { bar.style.width = '0'; bar.className = 'strength-bar'; }
                     if (text) { text.textContent = ''; text.className = 'strength-text'; }
-                } else {
-                    const data = await response.json();
-                    showError(data.detail || 'Password change failed');
-                }
-            } catch (error) {
-                showError('Connection failed');
-            } finally {
-                btn.disabled = false;
-            }
+                } else { const data = await response.json(); showError(data.detail || 'Password change failed'); }
+            } catch (error) { showError('Connection failed'); } finally { btn.disabled = false; }
         }
-
-        // ================================================================
-        // SAVE PREFERENCES (Step 62)
-        // ================================================================
 
         async function handleSavePreferences() {
             const prefs = {
@@ -390,282 +248,29 @@
                 language: document.getElementById('prefLanguage').value,
                 notifications: document.getElementById('prefNotifications').checked
             };
-
             try {
-                const response = await authFetch('/api/v1/auth/me/preferences', {
-                    method: 'PUT',
-                    body: JSON.stringify(prefs)
-                });
-
-                if (response.ok) {
-                    showSuccess('Preferences saved!');
-                    currentPreferences = prefs;
-                } else {
-                    const data = await response.json();
-                    showError(data.detail || 'Failed to save preferences');
-                }
-            } catch (error) {
-                showError('Connection failed');
-            }
+                const response = await authFetch('/api/v1/auth/me/preferences', { method: 'PUT', body: JSON.stringify(prefs) });
+                if (response.ok) { showSuccess('Preferences saved!'); currentPreferences = prefs; }
+                else { const data = await response.json(); showError(data.detail || 'Failed to save preferences'); }
+            } catch (error) { showError('Connection failed'); }
         }
 
-        // ================================================================
-        // DELETE ACCOUNT
-        // ================================================================
-
-        function handleDeleteAccount() {
-            document.getElementById('deleteModal').style.display = 'flex';
-            document.getElementById('deleteConfirmPassword').value = '';
-            document.getElementById('deleteConfirmPassword').focus();
-        }
-
-        function closeDeleteModal() {
-            document.getElementById('deleteModal').style.display = 'none';
-        }
+        function handleDeleteAccount() { document.getElementById('deleteModal').style.display = 'flex'; document.getElementById('deleteConfirmPassword').value = ''; document.getElementById('deleteConfirmPassword').focus(); }
+        function closeDeleteModal() { document.getElementById('deleteModal').style.display = 'none'; }
 
         async function confirmDeleteAccount() {
             const password = document.getElementById('deleteConfirmPassword').value;
-            if (!password) {
-                showError('Please enter your password to confirm deletion');
-                return;
-            }
-
-            const btn = document.getElementById('confirmDeleteBtn');
-            btn.disabled = true;
-            btn.textContent = 'Deleting...';
-
+            if (!password) { showError('Please enter your password to confirm deletion'); return; }
+            const btn = document.getElementById('confirmDeleteBtn'); btn.disabled = true; btn.textContent = 'Deleting...';
             try {
-                const response = await authFetch('/api/v1/auth/me', {
-                    method: 'DELETE',
-                    body: JSON.stringify({ password })
-                });
-
-                if (response.ok) {
-                    clearTokens();
-                    alert('Your account has been deleted.');
-                    window.location.href = 'login.html';
-                } else {
-                    const data = await response.json();
-                    showError(data.detail || 'Deletion failed');
-                    closeDeleteModal();
-                }
-            } catch (error) {
-                showError('Connection failed');
-                closeDeleteModal();
-            } finally {
-                btn.disabled = false;
-                btn.textContent = 'Delete Forever';
-            }
+                const response = await authFetch('/api/v1/auth/me', { method: 'DELETE', body: JSON.stringify({ password }) });
+                if (response.ok) { clearTokens(); alert('Your account has been deleted.'); window.location.href = 'login.html'; }
+                else { const data = await response.json(); showError(data.detail || 'Deletion failed'); closeDeleteModal(); }
+            } catch (error) { showError('Connection failed'); closeDeleteModal(); } finally { btn.disabled = false; btn.textContent = 'Delete Forever'; }
         }
 
-        // Close modal on outside click
-        document.getElementById('deleteModal').addEventListener('click', (e) => {
-            if (e.target.id === 'deleteModal') closeDeleteModal();
-        });
-
-        // Close modal on Escape
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') closeDeleteModal();
-        });
+        document.getElementById('deleteModal').addEventListener('click', (e) => { if (e.target.id === 'deleteModal') closeDeleteModal(); });
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDeleteModal(); });
     </script>
-
-    <style>
-        /* Nav Bar */
-        .profile-nav {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 16px 32px;
-            background: #0d1117;
-            border-bottom: 1px solid #21262d;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
-
-        .nav-brand {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            text-decoration: none;
-            color: #ffffff;
-        }
-
-        .nav-brand .logo-icon { font-size: 24px; }
-        .nav-brand .logo-text { font-size: 20px; font-weight: 700; }
-
-        .nav-actions {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-        }
-
-        .nav-link {
-            color: #8b949e;
-            text-decoration: none;
-            font-size: 14px;
-            transition: color 0.2s;
-        }
-
-        .nav-link:hover { color: #c9d1d9; }
-
-        .nav-logout-btn {
-            padding: 8px 16px;
-            font-size: 13px;
-            font-weight: 500;
-            color: #f85149;
-            background: transparent;
-            border: 1px solid #f85149;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        .nav-logout-btn:hover { background: rgba(248, 81, 73, 0.1); }
-
-        /* Profile container override for full page */
-        .profile-container {
-            max-width: 640px;
-            margin: 0 auto;
-            padding: 40px 20px 80px;
-        }
-
-        /* Joined date */
-        .profile-joined {
-            font-size: 13px;
-            color: #6e7681;
-            margin-top: 4px;
-        }
-
-        /* Danger section */
-        .danger-section {
-            border-color: rgba(248, 81, 73, 0.3);
-        }
-
-        .danger-section h3 { color: #f85149; }
-
-        .danger-text {
-            font-size: 14px;
-            color: #8b949e;
-            line-height: 1.6;
-            margin: 0 0 16px 0;
-        }
-
-        /* Select inputs */
-        .pref-select {
-            padding: 12px 16px;
-            font-size: 15px;
-            border: 1px solid #30363d;
-            border-radius: 8px;
-            background: #161b22;
-            color: #ffffff;
-            outline: none;
-            width: 100%;
-            cursor: pointer;
-            transition: border-color 0.2s;
-            appearance: none;
-            -webkit-appearance: none;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238b949e' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
-            background-repeat: no-repeat;
-            background-position: right 16px center;
-            padding-right: 40px;
-        }
-
-        .pref-select:focus {
-            border-color: #8b5cf6;
-            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
-        }
-
-        .pref-select option {
-            background: #161b22;
-            color: #ffffff;
-        }
-
-        /* Modal */
-        .modal-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.7);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 999;
-            backdrop-filter: blur(4px);
-        }
-
-        .modal-content {
-            background: #161b22;
-            border: 1px solid #30363d;
-            border-radius: 12px;
-            padding: 28px;
-            max-width: 420px;
-            width: 90%;
-        }
-
-        .modal-content h3 {
-            margin: 0 0 12px 0;
-            color: #f85149;
-            font-size: 20px;
-        }
-
-        .modal-content p {
-            margin: 0;
-            font-size: 14px;
-            color: #8b949e;
-            line-height: 1.6;
-        }
-
-        .modal-input {
-            width: 100%;
-            padding: 12px 16px;
-            font-size: 15px;
-            border: 1px solid #30363d;
-            border-radius: 8px;
-            background: #0d1117;
-            color: #ffffff;
-            outline: none;
-            box-sizing: border-box;
-        }
-
-        .modal-input:focus {
-            border-color: #f85149;
-            box-shadow: 0 0 0 3px rgba(248, 81, 73, 0.2);
-        }
-
-        .modal-actions {
-            display: flex;
-            gap: 12px;
-            margin-top: 20px;
-            justify-content: flex-end;
-        }
-
-        /* Password match text */
-        .password-match-text {
-            font-size: 12px;
-            margin-top: 4px;
-        }
-        .password-match-text.match { color: #3fb950; }
-        .password-match-text.no-match { color: #f85149; }
-
-        /* Responsive */
-        @media (max-width: 600px) {
-            .profile-nav {
-                padding: 12px 16px;
-            }
-            .profile-container {
-                padding: 24px 16px 60px;
-            }
-            .profile-header {
-                flex-direction: column;
-                text-align: center;
-            }
-            .modal-actions {
-                flex-direction: column;
-            }
-        }
-    </style>
 </body>
 </html>

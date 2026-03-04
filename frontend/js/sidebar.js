@@ -9,7 +9,19 @@ let conversations = [];
  */
 function toggleSidebar() {
     const sidebar = document.getElementById('sidebar');
-    sidebar.classList.toggle('hidden');
+    const overlay = document.getElementById('sidebarOverlay');
+    const isMobile = window.innerWidth <= 768;
+    
+    if (isMobile) {
+        // Mobile: toggle .open class + show overlay
+        sidebar.classList.toggle('open');
+        if (overlay) {
+            overlay.classList.toggle('show', sidebar.classList.contains('open'));
+        }
+    } else {
+        // Desktop: toggle .hidden class
+        sidebar.classList.toggle('hidden');
+    }
 }
 
 /**
@@ -60,6 +72,14 @@ async function selectConversation(convId) {
     conversationId = convId;
     renderConversations();
     
+    // On mobile, close sidebar after selecting
+    if (window.innerWidth <= 768) {
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.getElementById('sidebarOverlay');
+        sidebar.classList.remove('open');
+        if (overlay) overlay.classList.remove('show');
+    }
+    
     try {
         const response = await fetch(`${API_BASE}/api/v1/chat/conversations/${convId}`);
         if (!response.ok) throw new Error('Failed to load messages');
@@ -99,25 +119,25 @@ function newChat() {
     const container = document.getElementById('messagesContainer');
     container.innerHTML = `
         <div class="welcome" id="welcome">
-            <h1>How can I help you today?</h1>
-            <p>I'm OmniAI, your intelligent assistant with memory. I can help with emails, calendar, research, coding, and more.</p>
+            <h1>What can I help you with?</h1>
+            <p>I'm OmniAI — your intelligent assistant. I can help with writing, coding, research, planning, and more.</p>
             
             <div class="suggestions">
                 <div class="suggestion-card" onclick="useSuggestion('What can you do?')">
-                    <div class="suggestion-title">💡 Discover capabilities</div>
-                    <div class="suggestion-text">See all my features</div>
+                    <div class="suggestion-title">Discover capabilities</div>
+                    <div class="suggestion-text">See everything I can help with</div>
                 </div>
                 <div class="suggestion-card" onclick="useSuggestion('Help me write Python code')">
-                    <div class="suggestion-title">💻 Code assistance</div>
-                    <div class="suggestion-text">Generate and debug code</div>
+                    <div class="suggestion-title">Write code</div>
+                    <div class="suggestion-text">Generate, debug, and explain</div>
                 </div>
                 <div class="suggestion-card" onclick="useSuggestion('Explain quantum computing')">
-                    <div class="suggestion-title">🔍 Research & explain</div>
-                    <div class="suggestion-text">Deep dive into topics</div>
+                    <div class="suggestion-title">Research a topic</div>
+                    <div class="suggestion-text">Deep dive into any subject</div>
                 </div>
                 <div class="suggestion-card" onclick="useSuggestion('Plan a trip to Paris')">
-                    <div class="suggestion-title">✈️ Travel planning</div>
-                    <div class="suggestion-text">Create itineraries</div>
+                    <div class="suggestion-title">Plan something</div>
+                    <div class="suggestion-text">Trips, projects, events</div>
                 </div>
             </div>
         </div>

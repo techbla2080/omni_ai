@@ -3,23 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sign Up - OmniAI</title>
-    <link rel="stylesheet" href="css/styles.css">
-    <link rel="stylesheet" href="css/auth.css">
+    <title>Sign Up — OmniAI</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/auth.css">
 </head>
 <body class="auth-body">
     <div class="auth-container">
-        <!-- Left Side - Branding -->
         <div class="auth-branding">
             <div class="auth-branding-content">
                 <div class="auth-logo">
-                    <span class="logo-icon">🚀</span>
+                    <span class="logo-icon">⚡</span>
                     <span class="logo-text">OmniAI</span>
                 </div>
-                <h1>Get Started</h1>
+                <h1>Get started</h1>
                 <p>Create your account and unlock the power of AI. Free to start, no credit card required.</p>
                 <div class="auth-features">
                     <div class="feature-item">
@@ -42,7 +41,6 @@
             </div>
         </div>
 
-        <!-- Right Side - Signup Form -->
         <div class="auth-form-section">
             <div class="auth-form-container">
                 <div class="auth-form-header">
@@ -50,113 +48,63 @@
                     <p>Fill in your details to get started</p>
                 </div>
 
-                <!-- Error Message -->
                 <div class="auth-error" id="authError" style="display: none;">
                     <span class="error-icon">⚠️</span>
                     <span class="error-text" id="errorText"></span>
                 </div>
-
-                <!-- Success Message -->
                 <div class="auth-success" id="authSuccess" style="display: none;">
                     <span class="success-icon">✅</span>
                     <span class="success-text" id="successText"></span>
                 </div>
 
-                <!-- Signup Form -->
                 <form id="signupForm" class="auth-form">
                     <div class="form-group">
                         <label for="name">Full Name</label>
-                        <input 
-                            type="text" 
-                            id="name" 
-                            name="name" 
-                            placeholder="John Doe"
-                            required
-                            autocomplete="name"
-                        >
+                        <input type="text" id="name" name="name" placeholder="Your name" required autocomplete="name">
                     </div>
-
                     <div class="form-group">
                         <label for="email">Email</label>
-                        <input 
-                            type="email" 
-                            id="email" 
-                            name="email" 
-                            placeholder="you@example.com"
-                            required
-                            autocomplete="email"
-                        >
+                        <input type="email" id="email" name="email" placeholder="you@example.com" required autocomplete="email">
                     </div>
-
                     <div class="form-group">
                         <label for="password">Password</label>
                         <div class="password-input-wrapper">
-                            <input 
-                                type="password" 
-                                id="password" 
-                                name="password" 
-                                placeholder="••••••••"
-                                required
-                                autocomplete="new-password"
-                                oninput="updatePasswordStrength(this.value); checkPasswordMatch();"
-                            >
+                            <input type="password" id="password" name="password" placeholder="••••••••" required autocomplete="new-password" oninput="updatePasswordStrength(this.value); checkPasswordMatch();">
                             <button type="button" class="toggle-password" onclick="togglePassword('password')">
                                 <span id="passwordToggleIcon">👁️</span>
                             </button>
                         </div>
-                        <!-- Password Strength Indicator -->
                         <div class="password-strength-container">
-                            <div class="strength-bar-bg">
-                                <div class="strength-bar" id="passwordStrength"></div>
-                            </div>
+                            <div class="strength-bar-bg"><div class="strength-bar" id="passwordStrength"></div></div>
                             <span class="strength-text" id="passwordStrengthText"></span>
                         </div>
                     </div>
-
                     <div class="form-group">
                         <label for="confirmPassword">Confirm Password</label>
                         <div class="password-input-wrapper">
-                            <input 
-                                type="password" 
-                                id="confirmPassword" 
-                                name="confirmPassword" 
-                                placeholder="••••••••"
-                                required
-                                autocomplete="new-password"
-                                oninput="checkPasswordMatch()"
-                            >
+                            <input type="password" id="confirmPassword" name="confirmPassword" placeholder="••••••••" required autocomplete="new-password" oninput="checkPasswordMatch()">
                             <button type="button" class="toggle-password" onclick="togglePassword('confirmPassword')">
                                 <span id="confirmPasswordToggleIcon">👁️</span>
                             </button>
                         </div>
                         <span class="password-match-text" id="passwordMatchText"></span>
                     </div>
-
                     <div class="form-group checkbox-group">
                         <label class="checkbox-label">
                             <input type="checkbox" id="agreeTerms" name="agreeTerms" required>
-                            <span class="checkmark"></span>
-                            I agree to the <a href="#" class="terms-link">Terms of Service</a> and <a href="#" class="terms-link">Privacy Policy</a>
+                            <span>I agree to the <a href="#" class="terms-link">Terms of Service</a> and <a href="#" class="terms-link">Privacy Policy</a></span>
                         </label>
                     </div>
-
                     <button type="submit" class="auth-submit-btn" id="submitBtn">
                         <span class="btn-text">Create Account</span>
-                        <span class="btn-loader" style="display: none;">
-                            <span class="spinner"></span>
-                        </span>
+                        <span class="btn-loader" style="display: none;"><span class="spinner"></span></span>
                     </button>
                 </form>
 
-                <!-- Divider -->
-                <div class="auth-divider">
-                    <span>or continue with</span>
-                </div>
-
-                <!-- Social Login -->
+                <div class="auth-divider"><span>or continue with</span></div>
                 <div class="social-login">
                     <button type="button" class="social-btn google-btn" onclick="loginWithGoogle()">
-                        <svg viewBox="0 0 24 24" width="20" height="20">
+                        <svg viewBox="0 0 24 24" width="18" height="18">
                             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                             <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
                             <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
@@ -165,8 +113,6 @@
                         Google
                     </button>
                 </div>
-
-                <!-- Login Link -->
                 <div class="auth-footer">
                     <p>Already have an account? <a href="login.html">Sign in</a></p>
                 </div>
@@ -176,89 +122,30 @@
 
     <script src="js/auth.js"></script>
     <script>
-        // Check password match
         function checkPasswordMatch() {
             const password = document.getElementById('password').value;
             const confirmPassword = document.getElementById('confirmPassword').value;
             const matchText = document.getElementById('passwordMatchText');
-            
-            if (!confirmPassword) {
-                matchText.textContent = '';
-                matchText.className = 'password-match-text';
-                return false;
-            }
-            
-            if (password === confirmPassword) {
-                matchText.textContent = '✓ Passwords match';
-                matchText.className = 'password-match-text match';
-                return true;
-            } else {
-                matchText.textContent = '✗ Passwords do not match';
-                matchText.className = 'password-match-text no-match';
-                return false;
-            }
+            if (!confirmPassword) { matchText.textContent = ''; matchText.className = 'password-match-text'; return false; }
+            if (password === confirmPassword) { matchText.textContent = '✓ Passwords match'; matchText.className = 'password-match-text match'; return true; }
+            else { matchText.textContent = '✗ Passwords do not match'; matchText.className = 'password-match-text no-match'; return false; }
         }
 
-        // Handle form submission
         document.getElementById('signupForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            
             const name = document.getElementById('name').value.trim();
             const email = document.getElementById('email').value.trim();
             const password = document.getElementById('password').value;
             const confirmPassword = document.getElementById('confirmPassword').value;
             const agreeTerms = document.getElementById('agreeTerms').checked;
-            
-            // Validate
-            if (!name) {
-                showError('Please enter your name');
-                return;
-            }
-            
-            if (!email) {
-                showError('Please enter your email');
-                return;
-            }
-            
-            if (password !== confirmPassword) {
-                showError('Passwords do not match');
-                return;
-            }
-            
+            if (!name) { showError('Please enter your name'); return; }
+            if (!email) { showError('Please enter your email'); return; }
+            if (password !== confirmPassword) { showError('Passwords do not match'); return; }
             const validation = validatePassword(password);
-            if (!validation.valid) {
-                showError('Password must have: ' + validation.errors.join(', '));
-                return;
-            }
-            
-            if (!agreeTerms) {
-                showError('Please agree to the Terms of Service');
-                return;
-            }
-            
-            // Register
+            if (!validation.valid) { showError('Password must have: ' + validation.errors.join(', ')); return; }
+            if (!agreeTerms) { showError('Please agree to the Terms of Service'); return; }
             await register(name, email, password);
         });
     </script>
-
-    <style>
-        .password-match-text {
-            font-size: 12px;
-            margin-top: 4px;
-        }
-        .password-match-text.match {
-            color: #3fb950;
-        }
-        .password-match-text.no-match {
-            color: #f85149;
-        }
-        .terms-link {
-            color: #8b5cf6;
-            text-decoration: none;
-        }
-        .terms-link:hover {
-            text-decoration: underline;
-        }
-    </style>
 </body>
 </html>
