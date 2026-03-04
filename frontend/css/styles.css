@@ -317,6 +317,7 @@
        padding: 10px 12px;
        margin-bottom: 2px;
        border-radius: var(--radius-sm);
+       position: relative;
        cursor: pointer;
        transition: all var(--transition-fast);
        position: relative;

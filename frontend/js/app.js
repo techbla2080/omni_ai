@@ -186,21 +186,46 @@ async function deleteConversation(id) {
 
 async function renameConversation(id, element) {
     const currentTitle = element.textContent.trim();
-    const newTitle = prompt('Rename conversation:', currentTitle);
     
-    if (newTitle && newTitle !== currentTitle) {
-        try {
-            await authFetch('/api/v1/chat/conversations/' + id, {
-                method: 'PUT',
-                body: JSON.stringify({ title: newTitle })
-            });
-            
-            element.textContent = newTitle;
-            
-        } catch (error) {
-            console.error('Error renaming conversation:', error);
+    // Replace title with inline input
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'title-input';
+    input.value = currentTitle;
+    
+    element.textContent = '';
+    element.appendChild(input);
+    input.focus();
+    input.select();
+    
+    const saveTitle = async () => {
+        const newTitle = input.value.trim() || currentTitle;
+        element.textContent = newTitle;
+        
+        if (newTitle !== currentTitle) {
+            try {
+                await authFetch('/api/v1/chat/conversations/' + id + '/title', {
+                    method: 'PATCH',
+                    body: JSON.stringify({ title: newTitle })
+                });
+                loadConversations();
+            } catch (error) {
+                console.error('Error renaming:', error);
+                element.textContent = currentTitle;
+            }
         }
-    }
+    };
+    
+    input.addEventListener('blur', saveTitle);
+    input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') input.blur();
+    });
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            input.value = currentTitle;
+            input.blur();
+        }
+    });
 }
 
 // ============================================================================
