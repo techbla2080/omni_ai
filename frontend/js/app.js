@@ -22,10 +22,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     loadConversations();
     
-    // Add sidebar overlay for mobile
-    if (!document.querySelector('.sidebar-overlay')) {
+    // Add sidebar overlay for mobile if not already in HTML
+    if (!document.getElementById('sidebarOverlay') && !document.querySelector('.sidebar-overlay')) {
         const overlay = document.createElement('div');
         overlay.className = 'sidebar-overlay';
+        overlay.id = 'sidebarOverlay';
         overlay.onclick = toggleSidebar;
         document.body.appendChild(overlay);
     }
@@ -34,8 +35,6 @@ document.addEventListener('DOMContentLoaded', () => {
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
-
-// NOTE: handleKeyPress and autoResize are defined in index.html inline script
 
 function useSuggestion(text) {
     document.getElementById('messageInput').value = text;
@@ -70,21 +69,22 @@ function scrollToBottom() {
 }
 
 // ============================================================================
-// CONVERSATIONS MANAGEMENT
+// CONVERSATIONS MANAGEMENT (FIXED: correct paths + authFetch)
 // ============================================================================
 
 async function loadConversations() {
     try {
-        const response = await fetch(`${API_BASE}/api/v1/conversations`);
+        const response = await authFetch('/api/v1/chat/conversations?limit=50');
         if (!response.ok) return;
         
-        const conversations = await response.json();
+        const data = await response.json();
+        const conversations = data.conversations || data;
         const container = document.getElementById('conversationsList');
         if (!container) return;
         
-        if (conversations.length === 0) {
+        if (!conversations || conversations.length === 0) {
             container.innerHTML = `
-                <div class="no-conversations">
+                <div class="empty-state">
                     No conversations yet.<br>Start chatting to create one!
                 </div>
             `;
@@ -114,7 +114,7 @@ async function loadConversations() {
 
 async function loadConversation(id) {
     try {
-        const response = await fetch(`${API_BASE}/api/v1/conversations/${id}`);
+        const response = await authFetch('/api/v1/chat/conversations/' + id);
         if (!response.ok) return;
         
         const data = await response.json();
@@ -144,6 +144,10 @@ async function loadConversation(id) {
     }
 }
 
+function newChat() {
+    startNewConversation();
+}
+
 function startNewConversation() {
     conversationId = null;
     const container = document.getElementById('messagesContainer');
@@ -164,7 +168,7 @@ async function deleteConversation(id) {
     if (!confirm('Delete this conversation?')) return;
     
     try {
-        await fetch(`${API_BASE}/api/v1/conversations/${id}`, {
+        await authFetch('/api/v1/chat/conversations/' + id, {
             method: 'DELETE'
         });
         
@@ -185,9 +189,8 @@ async function renameConversation(id, element) {
     
     if (newTitle && newTitle !== currentTitle) {
         try {
-            await fetch(`${API_BASE}/api/v1/conversations/${id}`, {
+            await authFetch('/api/v1/chat/conversations/' + id, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ title: newTitle })
             });
             
@@ -241,7 +244,7 @@ function addAssistantMessage(text, messageId = null, isHtml = false) {
     
     messageDiv.innerHTML = `
         <div class="message-header">
-            <div class="avatar assistant">🚀</div>
+            <div class="avatar assistant">✦</div>
             <div class="sender-name">OmniAI</div>
         </div>
         <div class="message-content">${isHtml ? text : escapeHtml(text)}</div>
@@ -276,7 +279,7 @@ function addTypingIndicator() {
     
     messageDiv.innerHTML = `
         <div class="message-header">
-            <div class="avatar assistant">🚀</div>
+            <div class="avatar assistant">✦</div>
             <div class="sender-name">OmniAI</div>
         </div>
         <div class="typing-indicator">
@@ -312,7 +315,7 @@ function streamAssistantMessage(text, messageId = null) {
     
     messageDiv.innerHTML = `
         <div class="message-header">
-            <div class="avatar assistant">🚀</div>
+            <div class="avatar assistant">✦</div>
             <div class="sender-name">OmniAI</div>
         </div>
         <div class="message-content" id="${contentId}"></div>
@@ -406,7 +409,7 @@ function addFileMessage(files) {
 }
 
 // ============================================================================
-// FILE UPLOAD
+// FILE UPLOAD (FIXED: auth tokens)
 // ============================================================================
 
 function triggerFileUpload() {
@@ -471,8 +474,14 @@ async function uploadFiles() {
         formData.append('file', file);
         
         try {
+            // Use manual auth header for FormData (can't use authFetch which sets Content-Type to JSON)
+            const token = getAccessToken();
+            const headers = {};
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            
             const response = await fetch(`${API_BASE}/api/v1/files/upload`, {
                 method: 'POST',
+                headers: headers,
                 body: formData
             });
             
@@ -492,7 +501,7 @@ async function uploadFiles() {
 }
 
 // ============================================================================
-// CODE EXECUTION
+// CODE EXECUTION (FIXED: authFetch)
 // ============================================================================
 
 function detectCodeExecution(message) {
@@ -523,9 +532,8 @@ function extractCodeFromMessage(message) {
 
 async function executeCode(code) {
     try {
-        const response = await fetch(`${API_BASE}/api/v1/code/execute`, {
+        const response = await authFetch('/api/v1/code/execute', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ code: code, extract_from_message: false })
         });
         
@@ -631,13 +639,13 @@ function addRunButtons() {
 }
 
 // ============================================================================
-// EXPORT CONVERSATIONS
+// EXPORT CONVERSATIONS (FIXED: authFetch + correct paths)
 // ============================================================================
 
 async function exportConversation(convId, format = 'md') {
     try {
-        const response = await fetch(
-            `${API_BASE}/api/v1/conversations/${convId}/export?format=${format}`
+        const response = await authFetch(
+            '/api/v1/chat/conversations/' + convId + '/export?format=' + format
         );
         
         if (!response.ok) throw new Error('Export failed');
@@ -667,7 +675,7 @@ async function exportConversation(convId, format = 'md') {
 
 async function exportAllConversations() {
     try {
-        const response = await fetch(`${API_BASE}/api/v1/conversations/export/all`);
+        const response = await authFetch('/api/v1/chat/conversations/export/all');
         if (!response.ok) throw new Error('Bulk export failed');
         
         const blob = await response.blob();
@@ -723,7 +731,7 @@ function showExportMenu(convId, buttonElement) {
 }
 
 // ============================================================================
-// EDIT & DELETE MESSAGES
+// EDIT & DELETE MESSAGES (FIXED: authFetch)
 // ============================================================================
 
 function editMessage(buttonElement) {
@@ -757,13 +765,12 @@ async function saveEdit(messageId, buttonElement) {
     
     if (messageId && messageId !== 'null') {
         try {
-            await fetch(`${API_BASE}/api/v1/messages/${messageId}`, {
+            await authFetch('/api/v1/messages/' + messageId, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ content: newContent })
             });
             
-            await fetch(`${API_BASE}/api/v1/messages/${messageId}/and-after`, {
+            await authFetch('/api/v1/messages/' + messageId + '/and-after', {
                 method: 'DELETE'
             });
         } catch (error) {
@@ -781,12 +788,10 @@ async function saveEdit(messageId, buttonElement) {
     addTypingIndicator();
     
     try {
-        const response = await fetch(`${API_BASE}/api/v1/chat`, {
+        const response = await authFetch('/api/v1/chat', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 message: newContent,
-                user_id: 'web-user-001',
                 conversation_id: conversationId
             })
         });
@@ -817,7 +822,7 @@ async function deleteMessage(messageId, buttonElement) {
     
     if (messageId && messageId !== 'null') {
         try {
-            await fetch(`${API_BASE}/api/v1/messages/${messageId}`, {
+            await authFetch('/api/v1/messages/' + messageId, {
                 method: 'DELETE'
             });
         } catch (error) {
@@ -842,13 +847,12 @@ document.addEventListener('keydown', (e) => {
     
     if ((e.ctrlKey || e.metaKey) && e.key === '/') {
         e.preventDefault();
-        const search = document.getElementById('conversationSearch') || document.getElementById('searchInput');
+        const search = document.getElementById('searchBox');
         if (search) search.focus();
     }
     
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'D') {
         e.preventDefault();
-        if (typeof toggleDarkMode === 'function') toggleDarkMode();
         if (typeof toggleTheme === 'function') toggleTheme();
     }
     
@@ -889,7 +893,7 @@ function toggleShortcutsHelp() {
     modal.className = 'shortcuts-modal modal-overlay';
     modal.innerHTML = `
         <div class="shortcuts-content">
-            <h3>⌨️ Keyboard Shortcuts</h3>
+            <h3>Keyboard Shortcuts</h3>
             <div class="shortcut-row"><span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>N</kbd></span> <span>New conversation</span></div>
             <div class="shortcut-row"><span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>/</kbd></span> <span>Search conversations</span></div>
             <div class="shortcut-row"><span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>E</kbd></span> <span>Export conversation</span></div>
@@ -906,7 +910,7 @@ function toggleShortcutsHelp() {
 }
 
 // ============================================================================
-// FULL-TEXT SEARCH
+// FULL-TEXT SEARCH (FIXED: authFetch)
 // ============================================================================
 
 var searchDebounceTimer = null;
@@ -918,7 +922,7 @@ async function searchAllMessages(query) {
     }
     
     try {
-        const response = await fetch(`${API_BASE}/api/v1/search?q=${encodeURIComponent(query)}&limit=10`);
+        const response = await authFetch('/api/v1/search?q=' + encodeURIComponent(query) + '&limit=10');
         
         if (!response.ok) return;
         
@@ -962,7 +966,7 @@ function displaySearchResults(results, query) {
         dropdown.appendChild(item);
     });
     
-    const searchInput = document.getElementById('conversationSearch') || document.getElementById('searchInput');
+    const searchInput = document.getElementById('searchBox');
     if (searchInput) {
         searchInput.parentElement.style.position = 'relative';
         searchInput.parentElement.appendChild(dropdown);
@@ -996,46 +1000,68 @@ function handleSearchInput(event) {
 }
 
 // ============================================================================
-// MOBILE SIDEBAR TOGGLE
+// MOBILE SIDEBAR TOGGLE (matches new CSS: .open for mobile, .hidden for desktop)
 // ============================================================================
 
 function toggleSidebar() {
-    const sidebar = document.querySelector('.sidebar');
-    const overlay = document.querySelector('.sidebar-overlay');
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebarOverlay');
+    const isMobile = window.innerWidth <= 768;
     
-    if (sidebar) sidebar.classList.toggle('open');
-    if (overlay) overlay.classList.toggle('show');
+    if (isMobile) {
+        sidebar.classList.toggle('open');
+        if (overlay) overlay.classList.toggle('show', sidebar.classList.contains('open'));
+    } else {
+        sidebar.classList.toggle('hidden');
+    }
 }
 
 function closeSidebarOnMobile() {
     if (window.innerWidth <= 768) {
-        const sidebar = document.querySelector('.sidebar');
-        const overlay = document.querySelector('.sidebar-overlay');
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.getElementById('sidebarOverlay');
         if (sidebar) sidebar.classList.remove('open');
         if (overlay) overlay.classList.remove('show');
     }
 }
 
 // ============================================================================
-// THEME TOGGLE
+// THEME TOGGLE (matches new CSS: .light-mode class on body)
 // ============================================================================
 
 function toggleTheme() {
-    document.body.classList.toggle('light-mode');
     const isLight = document.body.classList.contains('light-mode');
-    localStorage.setItem('omniai-theme', isLight ? 'light' : 'dark');
+    const newTheme = isLight ? 'dark' : 'light';
+    
+    if (newTheme === 'light') {
+        document.body.classList.add('light-mode');
+    } else {
+        document.body.classList.remove('light-mode');
+    }
+    
+    localStorage.setItem('theme', newTheme);
+    
+    // Update theme icon
+    const themeIcon = document.getElementById('themeIcon');
+    if (themeIcon) {
+        themeIcon.textContent = newTheme === 'dark' ? '🌙' : '☀️';
+    }
 }
 
-// Load saved theme
+// Load saved theme on startup
 (function() {
-    const savedTheme = localStorage.getItem('omniai-theme');
+    const savedTheme = localStorage.getItem('theme') || 'dark';
     if (savedTheme === 'light') {
         document.body.classList.add('light-mode');
+    }
+    const themeIcon = document.getElementById('themeIcon');
+    if (themeIcon) {
+        themeIcon.textContent = savedTheme === 'dark' ? '🌙' : '☀️';
     }
 })();
 
 // ============================================================================
-// SEND MESSAGE
+// SEND MESSAGE (FIXED: authFetch + removed user_id)
 // ============================================================================
 
 async function sendMessage() {
@@ -1086,7 +1112,6 @@ async function sendMessage() {
     try {
         const requestBody = {
             message: message || "I uploaded some files. Please analyze them.",
-            user_id: 'web-user-001',
             conversation_id: conversationId
         };
         
@@ -1094,9 +1119,8 @@ async function sendMessage() {
             requestBody.file_ids = uploadedFilesList.map(f => f.file_id);
         }
         
-        const response = await fetch(`${API_BASE}/api/v1/chat`, {
+        const response = await authFetch('/api/v1/chat', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody)
         });
         
@@ -1121,7 +1145,7 @@ async function sendMessage() {
 }
 
 // ============================================================================
-// REGENERATE RESPONSE
+// REGENERATE RESPONSE (FIXED: authFetch)
 // ============================================================================
 
 async function regenerateResponse(messageId) {
@@ -1138,9 +1162,8 @@ async function regenerateResponse(messageId) {
     buttons.forEach(btn => btn.disabled = true);
     
     try {
-        const response = await fetch(`${API_BASE}/api/v1/chat/regenerate`, {
+        const response = await authFetch('/api/v1/chat/regenerate', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 conversation_id: conversationId,
                 message_id: messageId
@@ -1164,16 +1187,15 @@ async function regenerateResponse(messageId) {
 }
 
 // ============================================================================
-// FEEDBACK
+// FEEDBACK (FIXED: authFetch)
 // ============================================================================
 
 async function submitFeedback(messageId, rating) {
     if (!conversationId || !messageId) return;
     
     try {
-        const response = await fetch(`${API_BASE}/api/v1/feedback`, {
+        const response = await authFetch('/api/v1/feedback', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 message_id: messageId,
                 conversation_id: conversationId,
