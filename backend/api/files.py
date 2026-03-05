@@ -28,7 +28,7 @@ import re
 router = APIRouter(prefix="/api/v1", tags=["files"])
 
 # File storage directory
-UPLOAD_DIR = "C:/Users/pagar/OneDrive/Desktop/omni-ai/backend/uploads"
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # Allowed file types
