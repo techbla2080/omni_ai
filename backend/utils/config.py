@@ -28,15 +28,16 @@ class Settings(BaseSettings):
     REDIS_URL: str = Field(default="redis://localhost:6379")
     OLLAMA_BASE_URL: str = Field(default="http://localhost:11434")
     
-    # API Keys (NEW!)
-    SERPER_API_KEY: Optional[str] = Field(default=None)  # ← ADDED
-    OPENAI_API_KEY: Optional[str] = Field(default=None)  # ← ADDED (for Step 35)
-    BRAVE_API_KEY: Optional[str] = Field(default=None)   # ← ADDED (optional)
+    # API Keys
+    SERPER_API_KEY: Optional[str] = Field(default=None)
+    OPENAI_API_KEY: Optional[str] = Field(default=None)
+    BRAVE_API_KEY: Optional[str] = Field(default=None)
+    GROQ_API_KEY: Optional[str] = Field(default=None)
     
     class Config:
         env_file = ".env"
         case_sensitive = True
-        extra = "ignore"  # ← ADDED: Allows extra fields without errors
+        extra = "ignore"
 
 
 # Create global settings instance
@@ -54,11 +55,11 @@ def print_settings():
     print(f"Debug Mode: {settings.DEBUG}")
     print(f"LLM Model: {settings.MODEL_NAME}")
     print(f"JWT Algorithm: {settings.JWT_ALGORITHM}")
-    print(f"Serper API Key: {'✅ Set' if settings.SERPER_API_KEY else '❌ Not Set'}")  # ← ADDED
-    print(f"OpenAI API Key: {'✅ Set' if settings.OPENAI_API_KEY else '❌ Not Set'}")  # ← ADDED
+    print(f"Serper API Key: {'✅ Set' if settings.SERPER_API_KEY else '❌ Not Set'}")
+    print(f"OpenAI API Key: {'✅ Set' if settings.OPENAI_API_KEY else '❌ Not Set'}")
+    print(f"Groq API Key: {'✅ Set' if settings.GROQ_API_KEY else '❌ Not Set'}")
     print("=" * 50)
 
 
 if __name__ == "__main__":
-    # Test the configuration
     print_settings()

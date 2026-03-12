@@ -1,70 +1,158 @@
 """
-LLM Service - Ollama Integration
-Connect to your local Llama model!
-NOW WITH STREAMING SUPPORT!
+LLM Service - Groq API (Primary) + Ollama (Fallback)
+Groq provides free Llama 70B inference
+Ollama as local fallback if Groq is unavailable
 """
 
 import logging
 import httpx
 import json
+import os
 from typing import Optional, AsyncGenerator
 
 from utils.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Groq API settings
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", getattr(settings, "GROQ_API_KEY", ""))
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+
 
 class LLMService:
     """
-    LLM Service using Ollama
-    Connects to your local Llama models
+    LLM Service - Groq API primary, Ollama fallback
     """
-    
+
     def __init__(self):
-        self.base_url = getattr(settings, 'OLLAMA_BASE_URL', 'http://localhost:11434')
-        self.model_name = settings.MODEL_NAME
-        self.initialized = False
+        # Ollama settings (fallback)
+        self.ollama_url = getattr(settings, 'OLLAMA_BASE_URL', 'http://localhost:11434')
+        self.ollama_model = settings.MODEL_NAME
         
+        # Groq settings (primary)
+        self.groq_api_key = GROQ_API_KEY
+        self.groq_model = GROQ_MODEL
+        
+        # Provider tracking
+        self.provider = "groq" if self.groq_api_key else "ollama"
+        self.initialized = False
+
     async def initialize(self):
-        """Check if Ollama is running and model is available"""
+        """Initialize the LLM service"""
         if self.initialized:
             return
-        
-        logger.info(f"🤖 Initializing LLM service with model: {self.model_name}")
-        
+
+        # Try Groq first
+        if self.groq_api_key:
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(
+                        f"{GROQ_BASE_URL}/models",
+                        headers={"Authorization": f"Bearer {self.groq_api_key}"},
+                        timeout=10.0
+                    )
+                    if response.status_code == 200:
+                        self.provider = "groq"
+                        self.initialized = True
+                        logger.info(f"✅ Groq API connected! Model: {self.groq_model}")
+                        return
+                    else:
+                        logger.warning(f"⚠️ Groq API returned {response.status_code}, falling back to Ollama")
+            except Exception as e:
+                logger.warning(f"⚠️ Groq unavailable ({e}), falling back to Ollama")
+
+        # Fallback to Ollama
         try:
-            # Check if Ollama is running
             async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"{self.base_url}/api/tags",
-                    timeout=5.0
-                )
-                
-                if response.status_code != 200:
-                    raise RuntimeError("❌ Ollama is not running")
-                
-                # Check if our model is available
-                models = response.json().get("models", [])
-                model_names = [m.get("name", "") for m in models]
-                
-                if not any(self.model_name in name for name in model_names):
-                    logger.error(f"❌ Model {self.model_name} not found!")
-                    logger.error(f"Available models: {model_names}")
-                    raise RuntimeError(f"Model {self.model_name} not found")
-                
-                logger.info(f"✅ Ollama connected! Model: {self.model_name}")
-                logger.info(f"📊 Available models: {len(models)}")
-                
-                self.initialized = True
-                
-        except httpx.ConnectError:
-            logger.error("❌ Cannot connect to Ollama!")
-            logger.error("Make sure Ollama is running: ollama serve")
-            raise RuntimeError(
-                "Ollama not running. Start it with: ollama serve"
-            )
-    
+                response = await client.get(f"{self.ollama_url}/api/tags", timeout=5.0)
+                if response.status_code == 200:
+                    self.provider = "ollama"
+                    self.initialized = True
+                    logger.info(f"✅ Ollama connected! Model: {self.ollama_model}")
+                    return
+        except Exception as e:
+            logger.error(f"❌ Ollama also unavailable: {e}")
+
+        # If we have Groq key, still mark as initialized (will try on each request)
+        if self.groq_api_key:
+            self.provider = "groq"
+            self.initialized = True
+            logger.info("⚡ Using Groq API (connection will be verified per request)")
+        else:
+            raise RuntimeError("No LLM provider available. Set GROQ_API_KEY or start Ollama.")
+
     async def generate(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
+        model: Optional[str] = None
+    ) -> str:
+        """Generate AI response"""
+        if not self.initialized:
+            await self.initialize()
+
+        # Try Groq first
+        if self.provider == "groq" or self.groq_api_key:
+            try:
+                return await self._generate_groq(prompt, system_prompt, temperature, max_tokens, model)
+            except Exception as e:
+                logger.warning(f"⚠️ Groq failed ({e}), trying Ollama fallback...")
+
+        # Fallback to Ollama
+        return await self._generate_ollama(prompt, system_prompt, temperature, max_tokens, model)
+
+    async def _generate_groq(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
+        model: Optional[str] = None
+    ) -> str:
+        """Generate response using Groq API"""
+        model_to_use = model if model else self.groq_model
+
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        logger.info(f"⚡ Groq generating ({model_to_use}): {prompt[:50]}...")
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{GROQ_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.groq_api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": model_to_use,
+                    "messages": messages,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "stream": False
+                }
+            )
+
+            if response.status_code != 200:
+                error_text = response.text
+                logger.error(f"Groq API error {response.status_code}: {error_text}")
+                raise RuntimeError(f"Groq API error: {response.status_code}")
+
+            result = response.json()
+            generated_text = result["choices"][0]["message"]["content"].strip()
+            
+            # Log token usage
+            usage = result.get("usage", {})
+            logger.info(f"✅ Groq response: {len(generated_text)} chars | Tokens: {usage.get('total_tokens', '?')}")
+
+            return generated_text
+
+    async def _generate_ollama(
         self,
         prompt: str,
         system_prompt: Optional[str] = None,
@@ -72,74 +160,120 @@ class LLMService:
         max_tokens: int = 512,
         model: Optional[str] = None
     ) -> str:
-        """
-        Generate AI response (non-streaming)
-        
-        Args:
-            prompt: User's message
-            system_prompt: Optional system instructions
-            temperature: Creativity (0-1)
-            max_tokens: Max response length
-            model: Optional model override (if None, uses default)
-            
-        Returns:
-            AI generated response
-        """
-        if not self.initialized:
-            await self.initialize()
-        
-        # Use provided model or default
-        model_to_use = model if model else self.model_name
-        
-        try:
-            # Build messages
-            messages = []
-            if system_prompt:
-                messages.append({
-                    "role": "system",
-                    "content": system_prompt
-                })
-            messages.append({
-                "role": "user",
-                "content": prompt
-            })
-            
-            logger.info(f"🤔 Generating response for: {prompt[:50]}...")
-            
-            # Call Ollama API
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    f"{self.base_url}/api/chat",
-                    json={
-                        "model": model_to_use,
-                        "messages": messages,
-                        "stream": False,
-                        "options": {
-                            "temperature": temperature,
-                            "num_predict": max_tokens,
-                        }
+        """Generate response using Ollama (fallback)"""
+        model_to_use = model if model else self.ollama_model
+
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        logger.info(f"🦙 Ollama generating ({model_to_use}): {prompt[:50]}...")
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{self.ollama_url}/api/chat",
+                json={
+                    "model": model_to_use,
+                    "messages": messages,
+                    "stream": False,
+                    "options": {
+                        "temperature": temperature,
+                        "num_predict": max_tokens,
                     }
-                )
-                
-                if response.status_code != 200:
-                    logger.error(f"Ollama error: {response.text}")
-                    raise RuntimeError(f"Ollama API error: {response.status_code}")
-                
-                result = response.json()
-                generated_text = result["message"]["content"].strip()
-                
-                logger.info(f"✅ Response generated ({len(generated_text)} chars)")
-                
-                return generated_text
-                
-        except httpx.ReadTimeout:
-            logger.error("⏱️ Request timeout (>60s)")
-            raise RuntimeError("AI response timeout - try shorter prompts")
-        except Exception as e:
-            logger.error(f"❌ Generation failed: {e}")
-            raise
+                }
+            )
+
+            if response.status_code != 200:
+                logger.error(f"Ollama error: {response.text}")
+                raise RuntimeError(f"Ollama API error: {response.status_code}")
+
+            result = response.json()
+            generated_text = result["message"]["content"].strip()
+            logger.info(f"✅ Ollama response: {len(generated_text)} chars")
+            return generated_text
 
     async def generate_stream(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
+        model: Optional[str] = None
+    ) -> AsyncGenerator[str, None]:
+        """Generate streaming response"""
+        if not self.initialized:
+            await self.initialize()
+
+        # Try Groq first
+        if self.provider == "groq" or self.groq_api_key:
+            try:
+                async for token in self._stream_groq(prompt, system_prompt, temperature, max_tokens, model):
+                    yield token
+                return
+            except Exception as e:
+                logger.warning(f"⚠️ Groq stream failed ({e}), trying Ollama...")
+
+        # Fallback to Ollama streaming
+        async for token in self._stream_ollama(prompt, system_prompt, temperature, max_tokens, model):
+            yield token
+
+    async def _stream_groq(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
+        model: Optional[str] = None
+    ) -> AsyncGenerator[str, None]:
+        """Stream response from Groq API"""
+        model_to_use = model if model else self.groq_model
+
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        logger.info(f"⚡ Groq streaming ({model_to_use}): {prompt[:50]}...")
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream(
+                "POST",
+                f"{GROQ_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.groq_api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": model_to_use,
+                    "messages": messages,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "stream": True
+                }
+            ) as response:
+
+                if response.status_code != 200:
+                    error_text = await response.aread()
+                    logger.error(f"Groq stream error: {error_text}")
+                    raise RuntimeError(f"Groq stream error: {response.status_code}")
+
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        data_str = line[6:]  # Remove "data: " prefix
+                        if data_str.strip() == "[DONE]":
+                            logger.info("✅ Groq stream complete")
+                            break
+                        try:
+                            data = json.loads(data_str)
+                            delta = data.get("choices", [{}])[0].get("delta", {})
+                            token = delta.get("content", "")
+                            if token:
+                                yield token
+                        except json.JSONDecodeError:
+                            continue
+
+    async def _stream_ollama(
         self,
         prompt: str,
         system_prompt: Optional[str] = None,
@@ -147,84 +281,50 @@ class LLMService:
         max_tokens: int = 2000,
         model: Optional[str] = None
     ) -> AsyncGenerator[str, None]:
-        """
-        Generate streaming AI response (yields tokens as they arrive)
-        
-        Args:
-            prompt: User's message
-            system_prompt: Optional system instructions
-            temperature: Creativity (0-1)
-            max_tokens: Max response length
-            model: Optional model override
-            
-        Yields:
-            Tokens of text as they're generated
-        """
-        if not self.initialized:
-            await self.initialize()
-        
-        model_to_use = model if model else self.model_name
-        
-        logger.info(f"🌊 Streaming response for: {prompt[:50]}...")
-        
-        try:
-            # Build messages
-            messages = []
-            if system_prompt:
-                messages.append({
-                    "role": "system",
-                    "content": system_prompt
-                })
-            messages.append({
-                "role": "user",
-                "content": prompt
-            })
-            
-            # Call Ollama API with streaming
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                async with client.stream(
-                    "POST",
-                    f"{self.base_url}/api/chat",
-                    json={
-                        "model": model_to_use,
-                        "messages": messages,
-                        "stream": True,  # Enable streaming
-                        "options": {
-                            "temperature": temperature,
-                            "num_predict": max_tokens
-                        }
+        """Stream response from Ollama (fallback)"""
+        model_to_use = model if model else self.ollama_model
+
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        logger.info(f"🦙 Ollama streaming ({model_to_use}): {prompt[:50]}...")
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream(
+                "POST",
+                f"{self.ollama_url}/api/chat",
+                json={
+                    "model": model_to_use,
+                    "messages": messages,
+                    "stream": True,
+                    "options": {
+                        "temperature": temperature,
+                        "num_predict": max_tokens
                     }
-                ) as response:
-                    
-                    if response.status_code != 200:
-                        error_text = await response.aread()
-                        logger.error(f"Ollama error: {error_text}")
-                        yield json.dumps({"error": "Generation failed"})
-                        return
-                    
-                    # Stream response chunks
-                    async for line in response.aiter_lines():
-                        if line:
-                            try:
-                                data = json.loads(line)
-                                
-                                # Ollama returns token in "message.content" field
-                                if "message" in data and "content" in data["message"]:
-                                    token = data["message"]["content"]
-                                    if token:
-                                        yield token
-                                
-                                # Check if done
-                                if data.get("done", False):
-                                    logger.info("✅ Stream complete")
-                                    break
-                                    
-                            except json.JSONDecodeError:
-                                continue
-        
-        except Exception as e:
-            logger.error(f"❌ Streaming error: {e}")
-            yield json.dumps({"error": str(e)})
+                }
+            ) as response:
+
+                if response.status_code != 200:
+                    error_text = await response.aread()
+                    logger.error(f"Ollama error: {error_text}")
+                    yield json.dumps({"error": "Generation failed"})
+                    return
+
+                async for line in response.aiter_lines():
+                    if line:
+                        try:
+                            data = json.loads(line)
+                            if "message" in data and "content" in data["message"]:
+                                token = data["message"]["content"]
+                                if token:
+                                    yield token
+                            if data.get("done", False):
+                                logger.info("✅ Ollama stream complete")
+                                break
+                        except json.JSONDecodeError:
+                            continue
 
 
 # Global LLM service instance
@@ -236,53 +336,3 @@ async def get_llm() -> LLMService:
     if not llm_service.initialized:
         await llm_service.initialize()
     return llm_service
-
-
-# Test function
-async def test_llm():
-    """Test the LLM service"""
-    print("🧪 Testing LLM Service...")
-    print("=" * 50)
-    
-    try:
-        await llm_service.initialize()
-        print("✅ LLM initialized successfully!")
-        
-        # Test 1: Non-streaming generation
-        print("\n🤖 Test 1: Non-streaming (default model)")
-        response = await llm_service.generate(
-            prompt="Say hello and introduce yourself in one sentence.",
-            temperature=0.7
-        )
-        print(f"   AI: {response}")
-        
-        # Test 2: Streaming generation
-        print("\n🌊 Test 2: Streaming response")
-        print("   AI: ", end="", flush=True)
-        async for token in llm_service.generate_stream(
-            prompt="Count from 1 to 5 slowly.",
-            temperature=0.7
-        ):
-            print(token, end="", flush=True)
-        print()  # New line after stream
-        
-        # Test 3: Specific model
-        print("\n🤖 Test 3: Specific model (llama3.2:3b)")
-        response = await llm_service.generate(
-            prompt="What is 2+2?",
-            model="llama3.2:3b",
-            temperature=0.7
-        )
-        print(f"   AI: {response}")
-        
-        print("\n✅ All LLM tests passed!")
-        
-    except Exception as e:
-        print(f"\n❌ Test failed: {e}")
-        import traceback
-        traceback.print_exc()
-
-
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(test_llm())
