@@ -1,0 +1,19 @@
+# OmniAI Code Sandbox - Isolated Python Execution
+FROM python:3.11-slim
+
+# Install common libraries users might need
+RUN pip install --no-cache-dir \
+    numpy \
+    pandas \
+    matplotlib \
+    requests \
+    sympy \
+    scipy
+
+# Create non-root user for safety
+RUN useradd -m -s /bin/bash sandbox
+USER sandbox
+WORKDIR /home/sandbox
+
+# Keep container running - backend sends code via docker exec
+CMD ["sleep", "infinity"]

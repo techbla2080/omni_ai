@@ -33,6 +33,7 @@ services:
       - OLLAMA_BASE_URL=http://ollama:11434
     volumes:
       - ./backend/uploads:/app/uploads
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres:
         condition: service_healthy
@@ -40,6 +41,26 @@ services:
         condition: service_healthy
       ollama:
         condition: service_started
+      sandbox:
+        condition: service_started
+    restart: always
+
+  # ========================================
+  # CODE SANDBOX - Isolated Python Execution
+  # ========================================
+  sandbox:
+    build:
+      context: .
+      dockerfile: Dockerfile.sandbox
+    mem_limit: 256m
+    cpus: 0.5
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp:size=50m
+      - /home/sandbox:size=50m
+    security_opt:
+      - no-new-privileges:true
     restart: always
 
   # ========================================

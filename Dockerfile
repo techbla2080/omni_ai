@@ -1,13 +1,15 @@
 # OmniAI Backend Dockerfile
 FROM python:3.11-slim
 
-# System dependencies for Tesseract OCR + PDF processing
+# System dependencies for Tesseract OCR + PDF processing + Docker CLI
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     libtesseract-dev \
     poppler-utils \
     libmagic1 \
     gcc \
+    curl \
+    && curl -fsSL https://get.docker.com | sh \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
