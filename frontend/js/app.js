@@ -531,29 +531,96 @@ async function uploadFiles() {
 // ============================================================================
 
 function detectCodeExecution(message) {
-    const patterns = [
+    // Explicit triggers (original)
+    const explicitPatterns = [
         /^run[:\s]/i,
         /^execute[:\s]/i,
         /run this code/i,
         /execute this code/i,
         /run the following/i,
         /please run/i,
-        /can you run/i
+        /can you run/i,
+        /^\/run\s/i
     ];
-    return patterns.some(pattern => pattern.test(message));
+    if (explicitPatterns.some(p => p.test(message))) return true;
+    
+    // Has a code block? Always run it
+    if (/```[\s\S]*```/.test(message)) return true;
+    
+    // Auto-detect: message looks like actual Python code (not a question about code)
+    const lines = message.trim().split('\n');
+    const isQuestion = /^(what|how|why|when|where|who|can|could|would|should|explain|tell|help|write|create|build|make|show|give|suggest|describe|compare)/i.test(message);
+    if (isQuestion) return false;
+    
+    // Single line that looks like Python expression/statement
+    const pythonPatterns = [
+        /^print\s*\(/,                    // print(...)
+        /^import\s+\w/,                   // import xyz
+        /^from\s+\w+\s+import/,           // from x import y
+        /^def\s+\w+\s*\(/,               // def func(
+        /^class\s+\w+/,                   // class Foo
+        /^for\s+\w+\s+in\s+/,            // for x in ...
+        /^while\s+/,                       // while ...
+        /^if\s+.+:/,                       // if x:
+        /^\w+\s*=\s*.+/,                  // x = something
+        /^\[.*\]$/,                        // [list]
+        /^\{.*\}$/,                        // {dict}
+        /^len\s*\(/,                       // len(...)
+        /^sum\s*\(/,                       // sum(...)
+        /^range\s*\(/,                     // range(...)
+        /^sorted\s*\(/,                    // sorted(...)
+        /^input\s*\(/,                     // input(...)
+        /^open\s*\(/,                      // open(...)
+        /^try\s*:/,                        // try:
+        /^with\s+/,                        // with ...
+    ];
+    
+    // Check if first line matches a Python pattern
+    const firstLine = lines[0].trim();
+    if (pythonPatterns.some(p => p.test(firstLine))) return true;
+    
+    // Multi-line: if 3+ lines look like code, probably code
+    if (lines.length >= 3) {
+        let codeLineCount = 0;
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed === '') continue;
+            if (pythonPatterns.some(p => p.test(trimmed)) || 
+                /^\s+/.test(line) ||           // indented line
+                trimmed.endsWith(':') ||         // ends with colon
+                trimmed.startsWith('#') ||       // comment
+                trimmed.startsWith('return ') ||
+                trimmed.startsWith('elif ') ||
+                trimmed.startsWith('else:') ||
+                trimmed.startsWith('except') ||
+                trimmed.startsWith('finally:')) {
+                codeLineCount++;
+            }
+        }
+        if (codeLineCount >= lines.length * 0.6) return true;
+    }
+    
+    return false;
 }
 
 function extractCodeFromMessage(message) {
+    // Code block with triple backticks
     const pythonBlock = message.match(/```python\s*([\s\S]*?)\s*```/);
     if (pythonBlock) return pythonBlock[1].trim();
     
     const codeBlock = message.match(/```\s*([\s\S]*?)\s*```/);
     if (codeBlock) return codeBlock[1].trim();
     
-    const runMatch = message.match(/(?:run|execute)[:\s]+([\s\S]*)/i);
+    // Explicit "run:" or "execute:" prefix
+    const runMatch = message.match(/(?:^\/run\s+|^run[:\s]+|^execute[:\s]+)([\s\S]*)/i);
     if (runMatch) return runMatch[1].trim();
     
-    return null;
+    // "run this code" / "please run" etc — extract everything after the trigger phrase
+    const phraseMatch = message.match(/(?:run this code|execute this code|run the following|please run|can you run)[:\s]*([\s\S]*)/i);
+    if (phraseMatch && phraseMatch[1].trim()) return phraseMatch[1].trim();
+    
+    // Auto-detected code — the whole message IS the code
+    return message.trim();
 }
 
 async function executeCode(code) {
@@ -1124,7 +1191,7 @@ async function sendMessage() {
             removeTypingIndicator();
             
             const resultHtml = formatCodeResult(codeResult);
-            const responseHtml = `I ran your code:\n\n<pre><code>${escapeHtml(code)}</code></pre>\n\n${resultHtml}`;
+            const responseHtml = `I ran your code:\n\n<div class="code-block-wrapper"><pre><code>${escapeHtml(code)}</code></pre><button class="copy-code-btn" onclick="copyCode(this)" title="Copy code">📋 Copy</button></div>\n\n${resultHtml}`;
             addAssistantMessage(responseHtml, null, true);
             return;
         }
@@ -1249,4 +1316,31 @@ async function submitFeedback(messageId, rating) {
     } catch (error) {
         console.error('Feedback error:', error);
     }
+}
+
+// ============================================================================
+// COPY CODE
+// ============================================================================
+
+function copyCode(button) {
+    const wrapper = button.closest('.code-block-wrapper') || button.closest('pre');
+    const codeEl = wrapper.querySelector('code') || wrapper.querySelector('pre');
+    const code = codeEl ? codeEl.textContent : '';
+    
+    navigator.clipboard.writeText(code).then(() => {
+        const original = button.innerHTML;
+        button.innerHTML = '✅ Copied!';
+        setTimeout(() => { button.innerHTML = original; }, 2000);
+    }).catch(() => {
+        // Fallback for older browsers
+        const textarea = document.createElement('textarea');
+        textarea.value = code;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        const original = button.innerHTML;
+        button.innerHTML = '✅ Copied!';
+        setTimeout(() => { button.innerHTML = original; }, 2000);
+    });
 }
