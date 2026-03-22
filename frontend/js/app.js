@@ -658,7 +658,7 @@ function formatCodeResult(result) {
     if (result.output) {
         html += `
             <div class="code-result-section">
-                <div class="code-result-label">Output:</div>
+                <div class="code-result-label">OUTPUT:</div>
                 <pre class="code-result-output">${escapeHtml(result.output)}</pre>
             </div>
         `;
@@ -672,8 +672,20 @@ function formatCodeResult(result) {
             </div>
         `;
     }
-    
-    if (!result.output && !result.error && result.success) {
+
+    // ✅ TASK #8: Display matplotlib plots inline
+    if (result.image) {
+        html += `
+            <div class="code-result-section">
+                <div class="code-result-label">📊 Plot:</div>
+                <img src="data:image/png;base64,${result.image}" 
+                     style="max-width:100%; border-radius:8px; margin-top:8px; display:block;" 
+                     alt="matplotlib plot" />
+            </div>
+        `;
+    }
+
+    if (!result.output && !result.error && result.success && !result.image) {
         html += `
             <div class="code-result-section">
                 <div class="code-result-output empty">Code executed successfully (no output)</div>
