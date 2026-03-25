@@ -23,7 +23,7 @@ SANDBOX_CONTAINER = "omniai-sandbox-1"
 
 # Limits
 TIMEOUT_SECONDS = 30
-MAX_OUTPUT_LENGTH = 10000
+MAX_OUTPUT_LENGTH = 50000
 
 # Dangerous patterns to block before sending to sandbox
 BLOCKED_PATTERNS = [
