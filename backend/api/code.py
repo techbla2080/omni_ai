@@ -23,6 +23,7 @@ class CodeExecuteResponse(BaseModel):
     output: str
     error: Optional[str] = None
     execution_time: float
+    image: Optional[str] = None  # base64 PNG for matplotlib plots
 
 
 @router.post("/code/execute", response_model=CodeExecuteResponse)
@@ -64,7 +65,8 @@ async def execute_code(request: CodeExecuteRequest):
         success=result['success'],
         output=result.get('output', ''),
         error=result.get('error'),
-        execution_time=result.get('execution_time', 0)
+        execution_time=result.get('execution_time', 0),
+        image=result.get('image')
     )
 
 
