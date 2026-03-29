@@ -12,6 +12,40 @@ var isStreaming = false;
 var attachedFiles = [];
 
 // ============================================================================
+// MARKDOWN + SYNTAX HIGHLIGHTING SETUP
+// ============================================================================
+
+function setupMarked() {
+    if (typeof marked === 'undefined') return;
+    marked.setOptions({
+        highlight: function(code, lang) {
+            if (typeof hljs !== 'undefined' && lang && hljs.getLanguage(lang)) {
+                return hljs.highlight(code, { language: lang }).value;
+            }
+            if (typeof hljs !== 'undefined') {
+                return hljs.highlightAuto(code).value;
+            }
+            return code;
+        },
+        breaks: true,
+        gfm: true
+    });
+}
+
+function renderMarkdown(text) {
+    if (typeof marked === 'undefined') return escapeHtml(text);
+    setupMarked();
+    return marked.parse(text);
+}
+
+function highlightCodeBlocks(element) {
+    if (typeof hljs === 'undefined') return;
+    element.querySelectorAll('pre code').forEach(block => {
+        hljs.highlightElement(block);
+    });
+}
+
+// ============================================================================
 // INITIALIZATION
 // ============================================================================
 
@@ -20,9 +54,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (input) {
         input.focus();
     }
+    setupMarked();
     loadConversations();
     
-    // Add sidebar overlay for mobile if not already in HTML
     if (!document.getElementById('sidebarOverlay') && !document.querySelector('.sidebar-overlay')) {
         const overlay = document.createElement('div');
         overlay.className = 'sidebar-overlay';
@@ -69,7 +103,7 @@ function scrollToBottom() {
 }
 
 // ============================================================================
-// CONVERSATIONS MANAGEMENT (FIXED: correct paths + authFetch)
+// CONVERSATIONS MANAGEMENT
 // ============================================================================
 
 async function loadConversations() {
@@ -187,7 +221,6 @@ async function deleteConversation(id) {
 async function renameConversation(id, element) {
     const currentTitle = element.textContent.trim();
     
-    // Replace title with inline input
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'title-input';
@@ -267,13 +300,15 @@ function addAssistantMessage(text, messageId = null, isHtml = false) {
     if (messageId) {
         messageDiv.dataset.messageId = messageId;
     }
+
+    const renderedContent = isHtml ? text : renderMarkdown(text);
     
     messageDiv.innerHTML = `
         <div class="message-header">
             <div class="avatar assistant">✦</div>
             <div class="sender-name">OmniAI</div>
         </div>
-        <div class="message-content">${isHtml ? text : escapeHtml(text)}</div>
+        <div class="message-content markdown-body">${renderedContent}</div>
         ${messageId ? `
         <div class="message-actions">
             <button class="regenerate-btn" onclick="regenerateResponse('${messageId}')">
@@ -292,8 +327,11 @@ function addAssistantMessage(text, messageId = null, isHtml = false) {
     `;
     
     container.appendChild(messageDiv);
+
+    const contentDiv = messageDiv.querySelector('.message-content');
+    if (contentDiv) highlightCodeBlocks(contentDiv);
+
     scrollToBottom();
-    
     setTimeout(addRunButtons, 100);
 }
 
@@ -344,7 +382,7 @@ function streamAssistantMessage(text, messageId = null) {
             <div class="avatar assistant">✦</div>
             <div class="sender-name">OmniAI</div>
         </div>
-        <div class="message-content" id="${contentId}"></div>
+        <div class="message-content markdown-body" id="${contentId}"></div>
         ${messageId ? `
         <div class="message-actions">
             <button class="regenerate-btn" onclick="regenerateResponse('${messageId}')">
@@ -366,6 +404,7 @@ function streamAssistantMessage(text, messageId = null) {
     
     const contentDiv = document.getElementById(contentId);
     let index = 0;
+    let rawText = '';
     
     const cursor = document.createElement('span');
     cursor.className = 'streaming-cursor';
@@ -373,21 +412,27 @@ function streamAssistantMessage(text, messageId = null) {
     
     function typeNextChar() {
         if (index < text.length) {
-            const char = text[index];
-            const textNode = document.createTextNode(char);
-            contentDiv.insertBefore(textNode, cursor);
+            rawText += text[index];
             index++;
+            
+            contentDiv.textContent = rawText;
+            contentDiv.appendChild(cursor);
+            
             scrollToBottom();
             
-            let delay = 20;
-            if (char === ' ') delay = 10;
-            else if (['.', '!', '?', ','].includes(char)) delay = 100;
+            let delay = 15;
+            if (text[index - 1] === ' ') delay = 5;
+            else if (['.', '!', '?', ','].includes(text[index - 1])) delay = 60;
             
             setTimeout(typeNextChar, delay);
         } else {
+            // Streaming done — render markdown + highlight
             cursor.remove();
+            contentDiv.innerHTML = renderMarkdown(rawText);
+            highlightCodeBlocks(contentDiv);
             isStreaming = false;
             setTimeout(addRunButtons, 100);
+            scrollToBottom();
         }
     }
     
@@ -397,18 +442,23 @@ function streamAssistantMessage(text, messageId = null) {
 
 function streamTextIntoElement(text, element) {
     let index = 0;
+    let rawText = '';
     element.style.opacity = '1';
     
     function typeNextChar() {
         if (index < text.length) {
-            element.textContent += text[index];
+            rawText += text[index];
             index++;
+            element.textContent = rawText;
             
             let delay = 15;
             if (text[index - 1] === ' ') delay = 5;
             else if (['.', '!', '?'].includes(text[index - 1])) delay = 80;
             
             setTimeout(typeNextChar, delay);
+        } else {
+            element.innerHTML = renderMarkdown(rawText);
+            highlightCodeBlocks(element);
         }
     }
     
@@ -435,7 +485,7 @@ function addFileMessage(files) {
 }
 
 // ============================================================================
-// FILE UPLOAD (FIXED: auth tokens)
+// FILE UPLOAD
 // ============================================================================
 
 function triggerFileUpload() {
@@ -500,7 +550,6 @@ async function uploadFiles() {
         formData.append('file', file);
         
         try {
-            // Use manual auth header for FormData (can't use authFetch which sets Content-Type to JSON)
             const token = getAccessToken();
             const headers = {};
             if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -527,11 +576,10 @@ async function uploadFiles() {
 }
 
 // ============================================================================
-// CODE EXECUTION (FIXED: authFetch)
+// CODE EXECUTION
 // ============================================================================
 
 function detectCodeExecution(message) {
-    // Explicit triggers (original)
     const explicitPatterns = [
         /^run[:\s]/i,
         /^execute[:\s]/i,
@@ -544,51 +592,46 @@ function detectCodeExecution(message) {
     ];
     if (explicitPatterns.some(p => p.test(message))) return true;
     
-    // Has a code block? Always run it
     if (/```[\s\S]*```/.test(message)) return true;
     
-    // Auto-detect: message looks like actual Python code (not a question about code)
     const lines = message.trim().split('\n');
     const isQuestion = /^(what|how|why|when|where|who|can|could|would|should|explain|tell|help|write|create|build|make|show|give|suggest|describe|compare)/i.test(message);
     if (isQuestion) return false;
     
-    // Single line that looks like Python expression/statement
     const pythonPatterns = [
-        /^print\s*\(/,                    // print(...)
-        /^import\s+\w/,                   // import xyz
-        /^from\s+\w+\s+import/,           // from x import y
-        /^def\s+\w+\s*\(/,               // def func(
-        /^class\s+\w+/,                   // class Foo
-        /^for\s+\w+\s+in\s+/,            // for x in ...
-        /^while\s+/,                       // while ...
-        /^if\s+.+:/,                       // if x:
-        /^\w+\s*=\s*.+/,                  // x = something
-        /^\[.*\]$/,                        // [list]
-        /^\{.*\}$/,                        // {dict}
-        /^len\s*\(/,                       // len(...)
-        /^sum\s*\(/,                       // sum(...)
-        /^range\s*\(/,                     // range(...)
-        /^sorted\s*\(/,                    // sorted(...)
-        /^input\s*\(/,                     // input(...)
-        /^open\s*\(/,                      // open(...)
-        /^try\s*:/,                        // try:
-        /^with\s+/,                        // with ...
+        /^print\s*\(/,
+        /^import\s+\w/,
+        /^from\s+\w+\s+import/,
+        /^def\s+\w+\s*\(/,
+        /^class\s+\w+/,
+        /^for\s+\w+\s+in\s+/,
+        /^while\s+/,
+        /^if\s+.+:/,
+        /^\w+\s*=\s*.+/,
+        /^\[.*\]$/,
+        /^\{.*\}$/,
+        /^len\s*\(/,
+        /^sum\s*\(/,
+        /^range\s*\(/,
+        /^sorted\s*\(/,
+        /^input\s*\(/,
+        /^open\s*\(/,
+        /^try\s*:/,
+        /^with\s+/,
     ];
     
-    // Check if first line matches a Python pattern
     const firstLine = lines[0].trim();
     if (pythonPatterns.some(p => p.test(firstLine))) return true;
     
-    // Multi-line: if 3+ lines look like code, probably code
     if (lines.length >= 3) {
         let codeLineCount = 0;
         for (const line of lines) {
             const trimmed = line.trim();
             if (trimmed === '') continue;
             if (pythonPatterns.some(p => p.test(trimmed)) || 
-                /^\s+/.test(line) ||           // indented line
-                trimmed.endsWith(':') ||         // ends with colon
-                trimmed.startsWith('#') ||       // comment
+                /^\s+/.test(line) ||
+                trimmed.endsWith(':') ||
+                trimmed.startsWith('#') ||
                 trimmed.startsWith('return ') ||
                 trimmed.startsWith('elif ') ||
                 trimmed.startsWith('else:') ||
@@ -604,22 +647,18 @@ function detectCodeExecution(message) {
 }
 
 function extractCodeFromMessage(message) {
-    // Code block with triple backticks
     const pythonBlock = message.match(/```python\s*([\s\S]*?)\s*```/);
     if (pythonBlock) return pythonBlock[1].trim();
     
     const codeBlock = message.match(/```\s*([\s\S]*?)\s*```/);
     if (codeBlock) return codeBlock[1].trim();
     
-    // Explicit "run:" or "execute:" prefix
     const runMatch = message.match(/(?:^\/run\s+|^run[:\s]+|^execute[:\s]+)([\s\S]*)/i);
     if (runMatch) return runMatch[1].trim();
     
-    // "run this code" / "please run" etc — extract everything after the trigger phrase
     const phraseMatch = message.match(/(?:run this code|execute this code|run the following|please run|can you run)[:\s]*([\s\S]*)/i);
     if (phraseMatch && phraseMatch[1].trim()) return phraseMatch[1].trim();
     
-    // Auto-detected code — the whole message IS the code
     return message.trim();
 }
 
@@ -673,7 +712,6 @@ function formatCodeResult(result) {
         `;
     }
 
-    // ✅ TASK #8: Display matplotlib plots inline
     if (result.image) {
         html += `
             <div class="code-result-section">
@@ -744,7 +782,7 @@ function addRunButtons() {
 }
 
 // ============================================================================
-// EXPORT CONVERSATIONS (FIXED: authFetch + correct paths)
+// EXPORT CONVERSATIONS
 // ============================================================================
 
 async function exportConversation(convId, format = 'md') {
@@ -836,7 +874,7 @@ function showExportMenu(convId, buttonElement) {
 }
 
 // ============================================================================
-// EDIT & DELETE MESSAGES (FIXED: authFetch)
+// EDIT & DELETE MESSAGES
 // ============================================================================
 
 function editMessage(buttonElement) {
@@ -1015,7 +1053,7 @@ function toggleShortcutsHelp() {
 }
 
 // ============================================================================
-// FULL-TEXT SEARCH (FIXED: authFetch)
+// FULL-TEXT SEARCH
 // ============================================================================
 
 var searchDebounceTimer = null;
@@ -1028,12 +1066,9 @@ async function searchAllMessages(query) {
     
     try {
         const response = await authFetch('/api/v1/search?q=' + encodeURIComponent(query) + '&limit=10');
-        
         if (!response.ok) return;
-        
         const data = await response.json();
         displaySearchResults(data.results, query);
-        
     } catch (error) {
         console.error('Search error:', error);
     }
@@ -1042,9 +1077,7 @@ async function searchAllMessages(query) {
 function displaySearchResults(results, query) {
     hideSearchResults();
     
-    if (results.length === 0) {
-        return;
-    }
+    if (results.length === 0) return;
     
     const dropdown = document.createElement('div');
     dropdown.className = 'search-results-dropdown';
@@ -1091,21 +1124,18 @@ function highlightSearchTerm(text, term) {
 
 function handleSearchInput(event) {
     const query = event.target.value.trim();
-    
     clearTimeout(searchDebounceTimer);
-    
     if (query.length < 2) {
         hideSearchResults();
         return;
     }
-    
     searchDebounceTimer = setTimeout(() => {
         searchAllMessages(query);
     }, 300);
 }
 
 // ============================================================================
-// MOBILE SIDEBAR TOGGLE (matches new CSS: .open for mobile, .hidden for desktop)
+// MOBILE SIDEBAR TOGGLE
 // ============================================================================
 
 function toggleSidebar() {
@@ -1131,7 +1161,7 @@ function closeSidebarOnMobile() {
 }
 
 // ============================================================================
-// THEME TOGGLE (matches new CSS: .light-mode class on body)
+// THEME TOGGLE
 // ============================================================================
 
 function toggleTheme() {
@@ -1146,14 +1176,12 @@ function toggleTheme() {
     
     localStorage.setItem('theme', newTheme);
     
-    // Update theme icon
     const themeIcon = document.getElementById('themeIcon');
     if (themeIcon) {
         themeIcon.textContent = newTheme === 'dark' ? '🌙' : '☀️';
     }
 }
 
-// Load saved theme on startup
 (function() {
     const savedTheme = localStorage.getItem('theme') || 'dark';
     if (savedTheme === 'light') {
@@ -1166,7 +1194,7 @@ function toggleTheme() {
 })();
 
 // ============================================================================
-// SEND MESSAGE (FIXED: authFetch + removed user_id)
+// SEND MESSAGE
 // ============================================================================
 
 async function sendMessage() {
@@ -1250,7 +1278,7 @@ async function sendMessage() {
 }
 
 // ============================================================================
-// REGENERATE RESPONSE (FIXED: authFetch)
+// REGENERATE RESPONSE
 // ============================================================================
 
 async function regenerateResponse(messageId) {
@@ -1292,7 +1320,7 @@ async function regenerateResponse(messageId) {
 }
 
 // ============================================================================
-// FEEDBACK (FIXED: authFetch)
+// FEEDBACK
 // ============================================================================
 
 async function submitFeedback(messageId, rating) {
@@ -1344,7 +1372,6 @@ function copyCode(button) {
         button.innerHTML = '✅ Copied!';
         setTimeout(() => { button.innerHTML = original; }, 2000);
     }).catch(() => {
-        // Fallback for older browsers
         const textarea = document.createElement('textarea');
         textarea.value = code;
         document.body.appendChild(textarea);
