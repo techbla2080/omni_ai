@@ -2,7 +2,6 @@
 // OmniAI - Core Chat Application (Steps 1-55)
 // ============================================================================
 
-// DYNAMIC API BASE - works on localhost AND production
 const API_BASE = window.location.hostname === 'localhost' 
     ? 'http://localhost:8000' 
     : '';
@@ -51,9 +50,7 @@ function highlightCodeBlocks(element) {
 
 document.addEventListener('DOMContentLoaded', () => {
     const input = document.getElementById('messageInput');
-    if (input) {
-        input.focus();
-    }
+    if (input) input.focus();
     setupMarked();
     loadConversations();
     
@@ -77,16 +74,12 @@ function useSuggestion(text) {
 
 function hideWelcome() {
     const welcome = document.getElementById('welcome');
-    if (welcome) {
-        welcome.style.display = 'none';
-    }
+    if (welcome) welcome.style.display = 'none';
 }
 
 function showWelcome() {
     const welcome = document.getElementById('welcome');
-    if (welcome) {
-        welcome.style.display = 'block';
-    }
+    if (welcome) welcome.style.display = 'block';
 }
 
 function escapeHtml(text) {
@@ -97,9 +90,7 @@ function escapeHtml(text) {
 
 function scrollToBottom() {
     const container = document.getElementById('messagesContainer');
-    if (container) {
-        container.scrollTop = container.scrollHeight;
-    }
+    if (container) container.scrollTop = container.scrollHeight;
 }
 
 // ============================================================================
@@ -117,11 +108,7 @@ async function loadConversations() {
         if (!container) return;
         
         if (!conversations || conversations.length === 0) {
-            container.innerHTML = `
-                <div class="empty-state">
-                    No conversations yet.<br>Start chatting to create one!
-                </div>
-            `;
+            container.innerHTML = `<div class="empty-state">No conversations yet.<br>Start chatting to create one!</div>`;
             return;
         }
         
@@ -131,9 +118,7 @@ async function loadConversations() {
                 <div class="conversation-title" ondblclick="renameConversation('${conv.id}', this)">
                     ${escapeHtml(conv.title || 'New Conversation')}
                 </div>
-                <div class="conversation-meta">
-                    ${new Date(conv.updated_at).toLocaleDateString()}
-                </div>
+                <div class="conversation-meta">${new Date(conv.updated_at).toLocaleDateString()}</div>
                 <div class="conversation-actions">
                     <button class="conv-action-btn" onclick="event.stopPropagation(); renameConversation('${conv.id}', this.closest('.conversation-item').querySelector('.conversation-title'))" title="Rename">✏️</button>
                     <button class="conv-action-btn" onclick="event.stopPropagation(); showExportMenu('${conv.id}', this)" title="Export">📥</button>
@@ -141,7 +126,6 @@ async function loadConversations() {
                 </div>
             </div>
         `).join('');
-        
     } catch (error) {
         console.error('Error loading conversations:', error);
     }
@@ -157,62 +141,42 @@ async function loadConversation(id) {
         
         const container = document.getElementById('messagesContainer');
         container.innerHTML = '';
-        
         hideWelcome();
         
         if (data.messages && data.messages.length > 0) {
             data.messages.forEach(msg => {
-                if (msg.role === 'user') {
-                    addUserMessage(msg.content, msg.id, false);
-                } else {
-                    addAssistantMessage(msg.content, msg.id);
-                }
+                if (msg.role === 'user') addUserMessage(msg.content, msg.id, false);
+                else addAssistantMessage(msg.content, msg.id);
             });
         }
         
         loadConversations();
         closeSidebarOnMobile();
         scrollToBottom();
-        
     } catch (error) {
         console.error('Error loading conversation:', error);
     }
 }
 
-function newChat() {
-    startNewConversation();
-}
+function newChat() { startNewConversation(); }
 
 function startNewConversation() {
     conversationId = null;
     const container = document.getElementById('messagesContainer');
-    if (container) {
-        container.innerHTML = '';
-    }
+    if (container) container.innerHTML = '';
     showWelcome();
     loadConversations();
     closeSidebarOnMobile();
-    
     const input = document.getElementById('messageInput');
-    if (input) {
-        input.focus();
-    }
+    if (input) input.focus();
 }
 
 async function deleteConversation(id) {
     if (!confirm('Delete this conversation?')) return;
-    
     try {
-        await authFetch('/api/v1/chat/conversations/' + id, {
-            method: 'DELETE'
-        });
-        
-        if (id === conversationId) {
-            startNewConversation();
-        } else {
-            loadConversations();
-        }
-        
+        await authFetch('/api/v1/chat/conversations/' + id, { method: 'DELETE' });
+        if (id === conversationId) startNewConversation();
+        else loadConversations();
     } catch (error) {
         console.error('Error deleting conversation:', error);
     }
@@ -220,12 +184,10 @@ async function deleteConversation(id) {
 
 async function renameConversation(id, element) {
     const currentTitle = element.textContent.trim();
-    
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'title-input';
     input.value = currentTitle;
-    
     element.textContent = '';
     element.appendChild(input);
     input.focus();
@@ -234,7 +196,6 @@ async function renameConversation(id, element) {
     const saveTitle = async () => {
         const newTitle = input.value.trim() || currentTitle;
         element.textContent = newTitle;
-        
         if (newTitle !== currentTitle) {
             try {
                 await authFetch('/api/v1/chat/conversations/' + id + '/title', {
@@ -250,15 +211,8 @@ async function renameConversation(id, element) {
     };
     
     input.addEventListener('blur', saveTitle);
-    input.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') input.blur();
-    });
-    input.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            input.value = currentTitle;
-            input.blur();
-        }
-    });
+    input.addEventListener('keypress', (e) => { if (e.key === 'Enter') input.blur(); });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Escape') { input.value = currentTitle; input.blur(); } });
 }
 
 // ============================================================================
@@ -267,14 +221,10 @@ async function renameConversation(id, element) {
 
 function addUserMessage(text, messageId = null, scroll = true) {
     hideWelcome();
-    
     const container = document.getElementById('messagesContainer');
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message user';
-    
-    if (messageId) {
-        messageDiv.dataset.messageId = messageId;
-    }
+    if (messageId) messageDiv.dataset.messageId = messageId;
     
     messageDiv.innerHTML = `
         <div class="message-header">
@@ -296,10 +246,7 @@ function addAssistantMessage(text, messageId = null, isHtml = false) {
     const container = document.getElementById('messagesContainer');
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message assistant';
-    
-    if (messageId) {
-        messageDiv.dataset.messageId = messageId;
-    }
+    if (messageId) messageDiv.dataset.messageId = messageId;
 
     const renderedContent = isHtml ? text : renderMarkdown(text);
     
@@ -311,26 +258,18 @@ function addAssistantMessage(text, messageId = null, isHtml = false) {
         <div class="message-content markdown-body">${renderedContent}</div>
         ${messageId ? `
         <div class="message-actions">
-            <button class="regenerate-btn" onclick="regenerateResponse('${messageId}')">
-                🔄 Regenerate
-            </button>
+            <button class="regenerate-btn" onclick="regenerateResponse('${messageId}')">🔄 Regenerate</button>
         </div>
         <div class="feedback-buttons">
-            <button class="feedback-btn thumbs-up" onclick="submitFeedback('${messageId}', 1)" title="Good response">
-                👍 Helpful
-            </button>
-            <button class="feedback-btn thumbs-down" onclick="submitFeedback('${messageId}', -1)" title="Bad response">
-                👎 Not helpful
-            </button>
+            <button class="feedback-btn thumbs-up" onclick="submitFeedback('${messageId}', 1)" title="Good response">👍 Helpful</button>
+            <button class="feedback-btn thumbs-down" onclick="submitFeedback('${messageId}', -1)" title="Bad response">👎 Not helpful</button>
         </div>
         ` : ''}
     `;
     
     container.appendChild(messageDiv);
-
     const contentDiv = messageDiv.querySelector('.message-content');
     if (contentDiv) highlightCodeBlocks(contentDiv);
-
     scrollToBottom();
     setTimeout(addRunButtons, 100);
 }
@@ -340,7 +279,6 @@ function addTypingIndicator() {
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message assistant';
     messageDiv.id = 'typing-indicator';
-    
     messageDiv.innerHTML = `
         <div class="message-header">
             <div class="avatar assistant">✦</div>
@@ -352,31 +290,23 @@ function addTypingIndicator() {
             <div class="typing-dot"></div>
         </div>
     `;
-    
     container.appendChild(messageDiv);
     scrollToBottom();
 }
 
 function removeTypingIndicator() {
     const indicator = document.getElementById('typing-indicator');
-    if (indicator) {
-        indicator.remove();
-    }
+    if (indicator) indicator.remove();
 }
 
 function streamAssistantMessage(text, messageId = null) {
     removeTypingIndicator();
-    
     const container = document.getElementById('messagesContainer');
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message assistant';
-    
-    if (messageId) {
-        messageDiv.dataset.messageId = messageId;
-    }
+    if (messageId) messageDiv.dataset.messageId = messageId;
     
     const contentId = 'content-' + Date.now();
-    
     messageDiv.innerHTML = `
         <div class="message-header">
             <div class="avatar assistant">✦</div>
@@ -385,23 +315,16 @@ function streamAssistantMessage(text, messageId = null) {
         <div class="message-content markdown-body" id="${contentId}"></div>
         ${messageId ? `
         <div class="message-actions">
-            <button class="regenerate-btn" onclick="regenerateResponse('${messageId}')">
-                🔄 Regenerate
-            </button>
+            <button class="regenerate-btn" onclick="regenerateResponse('${messageId}')">🔄 Regenerate</button>
         </div>
         <div class="feedback-buttons">
-            <button class="feedback-btn thumbs-up" onclick="submitFeedback('${messageId}', 1)">
-                👍 Helpful
-            </button>
-            <button class="feedback-btn thumbs-down" onclick="submitFeedback('${messageId}', -1)">
-                👎 Not helpful
-            </button>
+            <button class="feedback-btn thumbs-up" onclick="submitFeedback('${messageId}', 1)">👍 Helpful</button>
+            <button class="feedback-btn thumbs-down" onclick="submitFeedback('${messageId}', -1)">👎 Not helpful</button>
         </div>
         ` : ''}
     `;
     
     container.appendChild(messageDiv);
-    
     const contentDiv = document.getElementById(contentId);
     let index = 0;
     let rawText = '';
@@ -414,10 +337,8 @@ function streamAssistantMessage(text, messageId = null) {
         if (index < text.length) {
             rawText += text[index];
             index++;
-            
             contentDiv.textContent = rawText;
             contentDiv.appendChild(cursor);
-            
             scrollToBottom();
             
             let delay = 15;
@@ -426,7 +347,6 @@ function streamAssistantMessage(text, messageId = null) {
             
             setTimeout(typeNextChar, delay);
         } else {
-            // Streaming done — render markdown + highlight
             cursor.remove();
             contentDiv.innerHTML = renderMarkdown(rawText);
             highlightCodeBlocks(contentDiv);
@@ -450,18 +370,15 @@ function streamTextIntoElement(text, element) {
             rawText += text[index];
             index++;
             element.textContent = rawText;
-            
             let delay = 15;
             if (text[index - 1] === ' ') delay = 5;
             else if (['.', '!', '?'].includes(text[index - 1])) delay = 80;
-            
             setTimeout(typeNextChar, delay);
         } else {
             element.innerHTML = renderMarkdown(rawText);
             highlightCodeBlocks(element);
         }
     }
-    
     typeNextChar();
 }
 
@@ -469,9 +386,7 @@ function addFileMessage(files) {
     const container = document.getElementById('messagesContainer');
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message user';
-    
     const fileList = files.map(f => `📎 ${escapeHtml(f.filename)}`).join('<br>');
-    
     messageDiv.innerHTML = `
         <div class="message-header">
             <div class="avatar user">👤</div>
@@ -479,7 +394,6 @@ function addFileMessage(files) {
         </div>
         <div class="message-content">${fileList}</div>
     `;
-    
     container.appendChild(messageDiv);
     scrollToBottom();
 }
@@ -490,17 +404,13 @@ function addFileMessage(files) {
 
 function triggerFileUpload() {
     const input = document.getElementById('fileInput');
-    if (input) {
-        input.click();
-    }
+    if (input) input.click();
 }
 
 function handleFileSelect(event) {
     const files = Array.from(event.target.files);
     files.forEach(file => {
-        if (!attachedFiles.find(f => f.name === file.name)) {
-            attachedFiles.push(file);
-        }
+        if (!attachedFiles.find(f => f.name === file.name)) attachedFiles.push(file);
     });
     displayAttachedFiles();
     event.target.value = '';
@@ -508,23 +418,18 @@ function handleFileSelect(event) {
 
 function displayAttachedFiles() {
     var container = document.getElementById('attachedFilesContainer');
-    
     if (!container) {
         container = document.createElement('div');
         container.id = 'attachedFilesContainer';
         container.className = 'attached-files-container';
         const inputArea = document.querySelector('.input-area');
-        if (inputArea) {
-            inputArea.insertBefore(container, inputArea.firstChild);
-        }
+        if (inputArea) inputArea.insertBefore(container, inputArea.firstChild);
     }
-    
     if (attachedFiles.length === 0) {
         container.innerHTML = '';
         container.style.display = 'none';
         return;
     }
-    
     container.style.display = 'flex';
     container.innerHTML = attachedFiles.map((file, index) => `
         <div class="attached-file">
@@ -542,36 +447,25 @@ function removeAttachedFile(index) {
 
 async function uploadFiles() {
     if (attachedFiles.length === 0) return null;
-    
     const uploadedFiles = [];
-    
     for (const file of attachedFiles) {
         const formData = new FormData();
         formData.append('file', file);
-        
         try {
             const token = getAccessToken();
             const headers = {};
             if (token) headers['Authorization'] = `Bearer ${token}`;
-            
             const response = await fetch(`${API_BASE}/api/v1/files/upload`, {
-                method: 'POST',
-                headers: headers,
-                body: formData
+                method: 'POST', headers, body: formData
             });
-            
             if (response.ok) {
                 const data = await response.json();
-                uploadedFiles.push({
-                    file_id: data.file_id,
-                    filename: file.name
-                });
+                uploadedFiles.push({ file_id: data.file_id, filename: file.name });
             }
         } catch (error) {
             console.error('Upload error:', error);
         }
     }
-    
     return uploadedFiles.length > 0 ? uploadedFiles : null;
 }
 
@@ -581,17 +475,10 @@ async function uploadFiles() {
 
 function detectCodeExecution(message) {
     const explicitPatterns = [
-        /^run[:\s]/i,
-        /^execute[:\s]/i,
-        /run this code/i,
-        /execute this code/i,
-        /run the following/i,
-        /please run/i,
-        /can you run/i,
-        /^\/run\s/i
+        /^run[:\s]/i, /^execute[:\s]/i, /run this code/i, /execute this code/i,
+        /run the following/i, /please run/i, /can you run/i, /^\/run\s/i
     ];
     if (explicitPatterns.some(p => p.test(message))) return true;
-    
     if (/```[\s\S]*```/.test(message)) return true;
     
     const lines = message.trim().split('\n');
@@ -599,25 +486,10 @@ function detectCodeExecution(message) {
     if (isQuestion) return false;
     
     const pythonPatterns = [
-        /^print\s*\(/,
-        /^import\s+\w/,
-        /^from\s+\w+\s+import/,
-        /^def\s+\w+\s*\(/,
-        /^class\s+\w+/,
-        /^for\s+\w+\s+in\s+/,
-        /^while\s+/,
-        /^if\s+.+:/,
-        /^\w+\s*=\s*.+/,
-        /^\[.*\]$/,
-        /^\{.*\}$/,
-        /^len\s*\(/,
-        /^sum\s*\(/,
-        /^range\s*\(/,
-        /^sorted\s*\(/,
-        /^input\s*\(/,
-        /^open\s*\(/,
-        /^try\s*:/,
-        /^with\s+/,
+        /^print\s*\(/, /^import\s+\w/, /^from\s+\w+\s+import/, /^def\s+\w+\s*\(/,
+        /^class\s+\w+/, /^for\s+\w+\s+in\s+/, /^while\s+/, /^if\s+.+:/,
+        /^\w+\s*=\s*.+/, /^\[.*\]$/, /^\{.*\}$/, /^len\s*\(/, /^sum\s*\(/,
+        /^range\s*\(/, /^sorted\s*\(/, /^input\s*\(/, /^open\s*\(/, /^try\s*:/, /^with\s+/,
     ];
     
     const firstLine = lines[0].trim();
@@ -628,37 +500,28 @@ function detectCodeExecution(message) {
         for (const line of lines) {
             const trimmed = line.trim();
             if (trimmed === '') continue;
-            if (pythonPatterns.some(p => p.test(trimmed)) || 
-                /^\s+/.test(line) ||
-                trimmed.endsWith(':') ||
-                trimmed.startsWith('#') ||
-                trimmed.startsWith('return ') ||
-                trimmed.startsWith('elif ') ||
-                trimmed.startsWith('else:') ||
-                trimmed.startsWith('except') ||
+            if (pythonPatterns.some(p => p.test(trimmed)) ||
+                /^\s+/.test(line) || trimmed.endsWith(':') || trimmed.startsWith('#') ||
+                trimmed.startsWith('return ') || trimmed.startsWith('elif ') ||
+                trimmed.startsWith('else:') || trimmed.startsWith('except') ||
                 trimmed.startsWith('finally:')) {
                 codeLineCount++;
             }
         }
         if (codeLineCount >= lines.length * 0.6) return true;
     }
-    
     return false;
 }
 
 function extractCodeFromMessage(message) {
     const pythonBlock = message.match(/```python\s*([\s\S]*?)\s*```/);
     if (pythonBlock) return pythonBlock[1].trim();
-    
     const codeBlock = message.match(/```\s*([\s\S]*?)\s*```/);
     if (codeBlock) return codeBlock[1].trim();
-    
     const runMatch = message.match(/(?:^\/run\s+|^run[:\s]+|^execute[:\s]+)([\s\S]*)/i);
     if (runMatch) return runMatch[1].trim();
-    
     const phraseMatch = message.match(/(?:run this code|execute this code|run the following|please run|can you run)[:\s]*([\s\S]*)/i);
     if (phraseMatch && phraseMatch[1].trim()) return phraseMatch[1].trim();
-    
     return message.trim();
 }
 
@@ -668,12 +531,10 @@ async function executeCode(code) {
             method: 'POST',
             body: JSON.stringify({ code: code, extract_from_message: false })
         });
-        
         if (!response.ok) {
             const errorData = await response.json();
             throw new Error(errorData.detail || 'Code execution failed');
         }
-        
         return await response.json();
     } catch (error) {
         console.error('Code execution error:', error);
@@ -702,7 +563,6 @@ function formatCodeResult(result) {
             </div>
         `;
     }
-    
     if (result.error) {
         html += `
             <div class="code-result-section">
@@ -711,7 +571,6 @@ function formatCodeResult(result) {
             </div>
         `;
     }
-
     if (result.image) {
         html += `
             <div class="code-result-section">
@@ -722,7 +581,6 @@ function formatCodeResult(result) {
             </div>
         `;
     }
-
     if (!result.output && !result.error && result.success && !result.image) {
         html += `
             <div class="code-result-section">
@@ -730,7 +588,6 @@ function formatCodeResult(result) {
             </div>
         `;
     }
-    
     html += '</div>';
     return html;
 }
@@ -743,17 +600,24 @@ function addRunButtons() {
         const code = codeElement.textContent;
         
         const isPythonLike = 
-            code.includes('print(') || 
-            code.includes('def ') || 
-            code.includes('class ') ||
-            code.includes('import ') || 
-            code.includes('for ') || 
-            code.includes('while ') || 
-            code.includes('if ') ||
-            code.includes(' = ') ||
-            /^\s*\w+\s*=/.test(code);
+            code.includes('print(') || code.includes('def ') || code.includes('class ') ||
+            code.includes('import ') || code.includes('for ') || code.includes('while ') ||
+            code.includes('if ') || code.includes(' = ') || /^\s*\w+\s*=/.test(code);
         
         if (isPythonLike && code.trim().length > 0) {
+            // ✅ Copy button
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'copy-code-btn';
+            copyBtn.innerHTML = '📋 Copy';
+            copyBtn.onclick = (e) => {
+                e.stopPropagation();
+                navigator.clipboard.writeText(codeElement.textContent).then(() => {
+                    copyBtn.innerHTML = '✅ Copied!';
+                    setTimeout(() => { copyBtn.innerHTML = '📋 Copy'; }, 2000);
+                });
+            };
+
+            // ✅ Run button
             const runBtn = document.createElement('button');
             runBtn.className = 'run-code-btn';
             runBtn.innerHTML = '▶️ Run';
@@ -776,6 +640,7 @@ function addRunButtons() {
             };
             
             pre.style.position = 'relative';
+            pre.appendChild(copyBtn);
             pre.appendChild(runBtn);
         }
     });
@@ -787,19 +652,14 @@ function addRunButtons() {
 
 async function exportConversation(convId, format = 'md') {
     try {
-        const response = await authFetch(
-            '/api/v1/chat/conversations/' + convId + '/export?format=' + format
-        );
-        
+        const response = await authFetch('/api/v1/chat/conversations/' + convId + '/export?format=' + format);
         if (!response.ok) throw new Error('Export failed');
-        
         const disposition = response.headers.get('Content-Disposition');
         let filename = `conversation.${format}`;
         if (disposition) {
             const match = disposition.match(/filename="(.+)"/);
             if (match) filename = match[1];
         }
-        
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -809,7 +669,6 @@ async function exportConversation(convId, format = 'md') {
         a.click();
         document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
-        
     } catch (error) {
         console.error('Export error:', error);
         alert('Failed to export conversation.');
@@ -820,7 +679,6 @@ async function exportAllConversations() {
     try {
         const response = await authFetch('/api/v1/chat/conversations/export/all');
         if (!response.ok) throw new Error('Bulk export failed');
-        
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -830,7 +688,6 @@ async function exportAllConversations() {
         a.click();
         document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
-        
     } catch (error) {
         console.error('Bulk export error:', error);
         alert('Failed to export conversations.');
@@ -840,29 +697,19 @@ async function exportAllConversations() {
 function showExportMenu(convId, buttonElement) {
     const existing = document.querySelector('.export-menu');
     if (existing) existing.remove();
-    
     const menu = document.createElement('div');
     menu.className = 'export-menu';
     menu.innerHTML = `
-        <div class="export-menu-item" onclick="exportConversation('${convId}', 'md')">
-            📝 Markdown (.md)
-        </div>
-        <div class="export-menu-item" onclick="exportConversation('${convId}', 'txt')">
-            📄 Plain Text (.txt)
-        </div>
-        <div class="export-menu-item" onclick="exportConversation('${convId}', 'json')">
-            📦 JSON (.json)
-        </div>
+        <div class="export-menu-item" onclick="exportConversation('${convId}', 'md')">📝 Markdown (.md)</div>
+        <div class="export-menu-item" onclick="exportConversation('${convId}', 'txt')">📄 Plain Text (.txt)</div>
+        <div class="export-menu-item" onclick="exportConversation('${convId}', 'json')">📦 JSON (.json)</div>
     `;
-    
     const rect = buttonElement.getBoundingClientRect();
     menu.style.position = 'fixed';
     menu.style.top = `${rect.bottom + 5}px`;
     menu.style.left = `${rect.left}px`;
     menu.style.zIndex = '1000';
-    
     document.body.appendChild(menu);
-    
     setTimeout(() => {
         document.addEventListener('click', function closeMenu(e) {
             if (!menu.contains(e.target) && e.target !== buttonElement) {
@@ -882,7 +729,6 @@ function editMessage(buttonElement) {
     const contentDiv = messageDiv.querySelector('.message-content');
     const messageId = messageDiv.dataset.messageId;
     const originalText = contentDiv.textContent;
-    
     contentDiv.innerHTML = `
         <textarea class="edit-textarea" rows="3">${escapeHtml(originalText)}</textarea>
         <div class="edit-actions">
@@ -890,7 +736,6 @@ function editMessage(buttonElement) {
             <button class="edit-cancel-btn" onclick="cancelEdit(this, '${escapeHtml(originalText).replace(/'/g, "\\'")}')">✖ Cancel</button>
         </div>
     `;
-    
     const textarea = contentDiv.querySelector('.edit-textarea');
     textarea.focus();
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
@@ -900,57 +745,31 @@ async function saveEdit(messageId, buttonElement) {
     const messageDiv = buttonElement.closest('.message');
     const textarea = messageDiv.querySelector('.edit-textarea');
     const newContent = textarea.value.trim();
-    
     if (!newContent) return;
-    
     const contentDiv = messageDiv.querySelector('.message-content');
     contentDiv.textContent = newContent;
-    
     if (messageId && messageId !== 'null') {
         try {
-            await authFetch('/api/v1/messages/' + messageId, {
-                method: 'PUT',
-                body: JSON.stringify({ content: newContent })
-            });
-            
-            await authFetch('/api/v1/messages/' + messageId + '/and-after', {
-                method: 'DELETE'
-            });
-        } catch (error) {
-            console.error('Edit save error:', error);
-        }
+            await authFetch('/api/v1/messages/' + messageId, { method: 'PUT', body: JSON.stringify({ content: newContent }) });
+            await authFetch('/api/v1/messages/' + messageId + '/and-after', { method: 'DELETE' });
+        } catch (error) { console.error('Edit save error:', error); }
     }
-    
     let nextSibling = messageDiv.nextElementSibling;
     while (nextSibling) {
         const toRemove = nextSibling;
         nextSibling = nextSibling.nextElementSibling;
         toRemove.remove();
     }
-    
     addTypingIndicator();
-    
     try {
         const response = await authFetch('/api/v1/chat', {
             method: 'POST',
-            body: JSON.stringify({
-                message: newContent,
-                conversation_id: conversationId
-            })
+            body: JSON.stringify({ message: newContent, conversation_id: conversationId })
         });
-        
         const data = await response.json();
-        
-        if (response.ok) {
-            streamAssistantMessage(data.response, data.message_id);
-        } else {
-            removeTypingIndicator();
-            streamAssistantMessage(`⚠️ Error: ${data.detail || 'Unknown error'}`);
-        }
-    } catch (error) {
-        removeTypingIndicator();
-        streamAssistantMessage('⚠️ Could not connect to server.');
-    }
+        if (response.ok) streamAssistantMessage(data.response, data.message_id);
+        else { removeTypingIndicator(); streamAssistantMessage(`⚠️ Error: ${data.detail || 'Unknown error'}`); }
+    } catch (error) { removeTypingIndicator(); streamAssistantMessage('⚠️ Could not connect to server.'); }
 }
 
 function cancelEdit(buttonElement, originalText) {
@@ -960,19 +779,12 @@ function cancelEdit(buttonElement, originalText) {
 
 async function deleteMessage(messageId, buttonElement) {
     if (!confirm('Delete this message?')) return;
-    
     const messageDiv = buttonElement.closest('.message');
-    
     if (messageId && messageId !== 'null') {
         try {
-            await authFetch('/api/v1/messages/' + messageId, {
-                method: 'DELETE'
-            });
-        } catch (error) {
-            console.error('Delete error:', error);
-        }
+            await authFetch('/api/v1/messages/' + messageId, { method: 'DELETE' });
+        } catch (error) { console.error('Delete error:', error); }
     }
-    
     messageDiv.style.opacity = '0';
     messageDiv.style.transition = 'opacity 0.3s';
     setTimeout(() => messageDiv.remove(), 300);
@@ -983,55 +795,21 @@ async function deleteMessage(messageId, buttonElement) {
 // ============================================================================
 
 document.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
-        e.preventDefault();
-        startNewConversation();
-    }
-    
-    if ((e.ctrlKey || e.metaKey) && e.key === '/') {
-        e.preventDefault();
-        const search = document.getElementById('searchBox');
-        if (search) search.focus();
-    }
-    
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'D') {
-        e.preventDefault();
-        if (typeof toggleTheme === 'function') toggleTheme();
-    }
-    
-    if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
-        e.preventDefault();
-        if (conversationId) {
-            exportConversation(conversationId, 'md');
-        }
-    }
-    
+    if ((e.ctrlKey || e.metaKey) && e.key === 'n') { e.preventDefault(); startNewConversation(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === '/') { e.preventDefault(); const s = document.getElementById('searchBox'); if (s) s.focus(); }
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'D') { e.preventDefault(); if (typeof toggleTheme === 'function') toggleTheme(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'e') { e.preventDefault(); if (conversationId) exportConversation(conversationId, 'md'); }
     if (e.key === 'Escape') {
-        const exportMenu = document.querySelector('.export-menu');
-        if (exportMenu) exportMenu.remove();
-        
-        const modal = document.querySelector('.modal-overlay');
-        if (modal) modal.remove();
-        
-        const sidebar = document.querySelector('.sidebar');
-        if (sidebar && sidebar.classList.contains('open')) {
-            toggleSidebar();
-        }
+        const exportMenu = document.querySelector('.export-menu'); if (exportMenu) exportMenu.remove();
+        const modal = document.querySelector('.modal-overlay'); if (modal) modal.remove();
+        const sidebar = document.querySelector('.sidebar'); if (sidebar && sidebar.classList.contains('open')) toggleSidebar();
     }
-    
-    if (e.key === '?' && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
-        e.preventDefault();
-        toggleShortcutsHelp();
-    }
+    if (e.key === '?' && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) { e.preventDefault(); toggleShortcutsHelp(); }
 });
 
 function toggleShortcutsHelp() {
     const existing = document.querySelector('.shortcuts-modal');
-    if (existing) {
-        existing.remove();
-        return;
-    }
-    
+    if (existing) { existing.remove(); return; }
     const modal = document.createElement('div');
     modal.className = 'shortcuts-modal modal-overlay';
     modal.innerHTML = `
@@ -1046,9 +824,7 @@ function toggleShortcutsHelp() {
             <button class="shortcuts-close-btn" onclick="this.closest('.modal-overlay').remove()">Close</button>
         </div>
     `;
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) modal.remove();
-    });
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
     document.body.appendChild(modal);
 }
 
@@ -1059,51 +835,32 @@ function toggleShortcutsHelp() {
 var searchDebounceTimer = null;
 
 async function searchAllMessages(query) {
-    if (!query || query.trim().length < 2) {
-        hideSearchResults();
-        return;
-    }
-    
+    if (!query || query.trim().length < 2) { hideSearchResults(); return; }
     try {
         const response = await authFetch('/api/v1/search?q=' + encodeURIComponent(query) + '&limit=10');
         if (!response.ok) return;
         const data = await response.json();
         displaySearchResults(data.results, query);
-    } catch (error) {
-        console.error('Search error:', error);
-    }
+    } catch (error) { console.error('Search error:', error); }
 }
 
 function displaySearchResults(results, query) {
     hideSearchResults();
-    
     if (results.length === 0) return;
-    
     const dropdown = document.createElement('div');
     dropdown.className = 'search-results-dropdown';
     dropdown.id = 'searchResultsDropdown';
-    
     results.forEach(result => {
         const item = document.createElement('div');
         item.className = 'search-result-item';
-        
-        const preview = result.content_preview;
-        const highlighted = highlightSearchTerm(preview, query);
-        
         item.innerHTML = `
             <div class="search-result-title">${escapeHtml(result.conversation_title || 'Untitled')}</div>
-            <div class="search-result-preview">${highlighted}</div>
+            <div class="search-result-preview">${highlightSearchTerm(result.content_preview, query)}</div>
             <div class="search-result-meta">${result.role} · ${result.timestamp ? new Date(result.timestamp).toLocaleDateString() : ''}</div>
         `;
-        
-        item.onclick = () => {
-            loadConversation(result.conversation_id);
-            hideSearchResults();
-        };
-        
+        item.onclick = () => { loadConversation(result.conversation_id); hideSearchResults(); };
         dropdown.appendChild(item);
     });
-    
     const searchInput = document.getElementById('searchBox');
     if (searchInput) {
         searchInput.parentElement.style.position = 'relative';
@@ -1118,20 +875,14 @@ function hideSearchResults() {
 
 function highlightSearchTerm(text, term) {
     const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`(${escaped})`, 'gi');
-    return escapeHtml(text).replace(regex, '<mark>$1</mark>');
+    return escapeHtml(text).replace(new RegExp(`(${escaped})`, 'gi'), '<mark>$1</mark>');
 }
 
 function handleSearchInput(event) {
     const query = event.target.value.trim();
     clearTimeout(searchDebounceTimer);
-    if (query.length < 2) {
-        hideSearchResults();
-        return;
-    }
-    searchDebounceTimer = setTimeout(() => {
-        searchAllMessages(query);
-    }, 300);
+    if (query.length < 2) { hideSearchResults(); return; }
+    searchDebounceTimer = setTimeout(() => searchAllMessages(query), 300);
 }
 
 // ============================================================================
@@ -1142,7 +893,6 @@ function toggleSidebar() {
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('sidebarOverlay');
     const isMobile = window.innerWidth <= 768;
-    
     if (isMobile) {
         sidebar.classList.toggle('open');
         if (overlay) overlay.classList.toggle('show', sidebar.classList.contains('open'));
@@ -1167,30 +917,18 @@ function closeSidebarOnMobile() {
 function toggleTheme() {
     const isLight = document.body.classList.contains('light-mode');
     const newTheme = isLight ? 'dark' : 'light';
-    
-    if (newTheme === 'light') {
-        document.body.classList.add('light-mode');
-    } else {
-        document.body.classList.remove('light-mode');
-    }
-    
+    if (newTheme === 'light') document.body.classList.add('light-mode');
+    else document.body.classList.remove('light-mode');
     localStorage.setItem('theme', newTheme);
-    
     const themeIcon = document.getElementById('themeIcon');
-    if (themeIcon) {
-        themeIcon.textContent = newTheme === 'dark' ? '🌙' : '☀️';
-    }
+    if (themeIcon) themeIcon.textContent = newTheme === 'dark' ? '🌙' : '☀️';
 }
 
 (function() {
     const savedTheme = localStorage.getItem('theme') || 'dark';
-    if (savedTheme === 'light') {
-        document.body.classList.add('light-mode');
-    }
+    if (savedTheme === 'light') document.body.classList.add('light-mode');
     const themeIcon = document.getElementById('themeIcon');
-    if (themeIcon) {
-        themeIcon.textContent = savedTheme === 'dark' ? '🌙' : '☀️';
-    }
+    if (themeIcon) themeIcon.textContent = savedTheme === 'dark' ? '🌙' : '☀️';
 })();
 
 // ============================================================================
@@ -1199,10 +937,8 @@ function toggleTheme() {
 
 async function sendMessage() {
     if (isStreaming) return;
-    
     const input = document.getElementById('messageInput');
     const message = input.value.trim();
-    
     if (!message && attachedFiles.length === 0) return;
     
     var uploadedFilesList = null;
@@ -1218,18 +954,14 @@ async function sendMessage() {
         addUserMessage(message);
         input.value = '';
         input.style.height = 'auto';
-    } else if (!uploadedFilesList) {
-        return;
-    }
+    } else if (!uploadedFilesList) return;
     
     if (message && detectCodeExecution(message)) {
         const code = extractCodeFromMessage(message);
-        
         if (code) {
             addTypingIndicator();
             const codeResult = await executeCode(code);
             removeTypingIndicator();
-            
             const resultHtml = formatCodeResult(codeResult);
             const responseHtml = `I ran your code:\n\n<div class="code-block-wrapper"><pre><code>${escapeHtml(code)}</code></pre><button class="copy-code-btn" onclick="copyCode(this)" title="Copy code">📋 Copy</button></div>\n\n${resultHtml}`;
             addAssistantMessage(responseHtml, null, true);
@@ -1238,7 +970,6 @@ async function sendMessage() {
     }
     
     addTypingIndicator();
-    
     const sendButton = document.getElementById('sendButton');
     if (sendButton) sendButton.disabled = true;
     
@@ -1247,18 +978,14 @@ async function sendMessage() {
             message: message || "I uploaded some files. Please analyze them.",
             conversation_id: conversationId
         };
-        
         if (uploadedFilesList && uploadedFilesList.length > 0) {
             requestBody.file_ids = uploadedFilesList.map(f => f.file_id);
         }
-        
         const response = await authFetch('/api/v1/chat', {
             method: 'POST',
             body: JSON.stringify(requestBody)
         });
-        
         const data = await response.json();
-        
         if (response.ok) {
             conversationId = data.conversation_id;
             streamAssistantMessage(data.response, data.message_id);
@@ -1267,7 +994,6 @@ async function sendMessage() {
             removeTypingIndicator();
             streamAssistantMessage(`⚠️ Error: ${data.detail || 'Unknown error'}`);
         }
-        
     } catch (error) {
         console.error('Error:', error);
         removeTypingIndicator();
@@ -1283,32 +1009,22 @@ async function sendMessage() {
 
 async function regenerateResponse(messageId) {
     if (!conversationId || !messageId) return;
-    
     const messageDiv = document.querySelector(`[data-message-id="${messageId}"]`);
     if (!messageDiv) return;
-    
     const contentDiv = messageDiv.querySelector('.message-content');
     const originalContent = contentDiv.innerHTML;
     contentDiv.style.opacity = '0.5';
-    
     const buttons = messageDiv.querySelectorAll('.regenerate-btn');
     buttons.forEach(btn => btn.disabled = true);
-    
     try {
         const response = await authFetch('/api/v1/chat/regenerate', {
             method: 'POST',
-            body: JSON.stringify({
-                conversation_id: conversationId,
-                message_id: messageId
-            })
+            body: JSON.stringify({ conversation_id: conversationId, message_id: messageId })
         });
-        
         if (!response.ok) throw new Error('Regeneration failed');
-        
         const data = await response.json();
         contentDiv.innerHTML = '';
         streamTextIntoElement(data.response, contentDiv);
-        
     } catch (error) {
         console.error('Regeneration error:', error);
         contentDiv.innerHTML = originalContent;
@@ -1325,37 +1041,22 @@ async function regenerateResponse(messageId) {
 
 async function submitFeedback(messageId, rating) {
     if (!conversationId || !messageId) return;
-    
     try {
         const response = await authFetch('/api/v1/feedback', {
             method: 'POST',
-            body: JSON.stringify({
-                message_id: messageId,
-                conversation_id: conversationId,
-                rating: rating
-            })
+            body: JSON.stringify({ message_id: messageId, conversation_id: conversationId, rating: rating })
         });
-        
         if (!response.ok) throw new Error('Feedback failed');
-        
         const messageDiv = document.querySelector(`[data-message-id="${messageId}"]`);
         if (messageDiv) {
             const thumbsUpBtn = messageDiv.querySelector('.thumbs-up');
             const thumbsDownBtn = messageDiv.querySelector('.thumbs-down');
-            
             if (thumbsUpBtn) thumbsUpBtn.classList.remove('active');
             if (thumbsDownBtn) thumbsDownBtn.classList.remove('active');
-            
-            if (rating === 1 && thumbsUpBtn) {
-                thumbsUpBtn.classList.add('active');
-            } else if (thumbsDownBtn) {
-                thumbsDownBtn.classList.add('active');
-            }
+            if (rating === 1 && thumbsUpBtn) thumbsUpBtn.classList.add('active');
+            else if (thumbsDownBtn) thumbsDownBtn.classList.add('active');
         }
-        
-    } catch (error) {
-        console.error('Feedback error:', error);
-    }
+    } catch (error) { console.error('Feedback error:', error); }
 }
 
 // ============================================================================
@@ -1366,7 +1067,6 @@ function copyCode(button) {
     const wrapper = button.closest('.code-block-wrapper') || button.closest('pre');
     const codeEl = wrapper.querySelector('code') || wrapper.querySelector('pre');
     const code = codeEl ? codeEl.textContent : '';
-    
     navigator.clipboard.writeText(code).then(() => {
         const original = button.innerHTML;
         button.innerHTML = '✅ Copied!';
