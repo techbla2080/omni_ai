@@ -405,12 +405,11 @@ async def enhanced_chat(
             )
         
         # ============================================
-        # FILE CONTEXT INTEGRATION ← NEW STEP 45!
+        # FILE CONTEXT INTEGRATION
         # ============================================
         file_context = ""
         files_used = 0
         
-        # Check if user provided specific file IDs or is asking about files
         if request.file_ids or detect_file_reference(request.message):
             print(f"📎 File context requested")
             
@@ -474,21 +473,18 @@ IMPORTANT:
 5. When analyzing files, reference specific content from the document.
 6. Be helpful, concise, and friendly."""
 
-        # Add file context FIRST (highest priority)
         if file_context:
             system_prompt += "\n\n--- USER'S FILE CONTENT ---"
             system_prompt += f"\n{file_context}"
             system_prompt += "\n--- END FILE CONTENT ---"
             system_prompt += "\n\nIMPORTANT: The user is asking about these files. Use this content to answer their question."
 
-        # Add search results
         if search_context:
             system_prompt += "\n\n--- CURRENT WEB SEARCH RESULTS ---"
             system_prompt += search_context
             system_prompt += "\n--- END SEARCH RESULTS ---"
             system_prompt += "\n\nIMPORTANT: Base your answer on these current search results."
         
-        # Add conversation context
         if context:
             system_prompt += f"\n\n--- CONVERSATION HISTORY ---\n{context}"
         
@@ -523,12 +519,10 @@ IMPORTANT:
         
         model_used = chosen_model
         
-        # Calculate latency
         end_time = datetime.utcnow()
         latency_ms = int((end_time - start_time).total_seconds() * 1000)
         
-        # Save and cache response
-        await save_message(db, conversation_id, "assistant", ai_response, model_used, latency_ms)
+        message_id = await save_message(db, conversation_id, "assistant", ai_response, model_used, latency_ms)
         context_manager.add_message(conversation_id, "assistant", ai_response)
         
         return ChatResponse(
@@ -557,7 +551,7 @@ IMPORTANT:
 
 
 # ============================================================================
-# STREAMING CHAT ENDPOINT
+# STREAMING CHAT ENDPOINT — #15 Real token streaming
 # ============================================================================
 
 @router.post("/chat/stream")
@@ -581,9 +575,7 @@ async def stream_chat(
             
             yield f"data: {json.dumps({'type': 'conversation_id', 'conversation_id': conversation_id})}\n\n"
             
-            # ============================================
-            # FILE CONTEXT FOR STREAMING ← NEW!
-            # ============================================
+            # FILE CONTEXT
             file_context = ""
             files_used = 0
             
@@ -600,7 +592,7 @@ async def stream_chat(
                     files_used = file_context.count("=== File:")
                     yield f"data: {json.dumps({'type': 'status', 'message': f'Loaded {files_used} file(s)'})}\n\n"
             
-            # Check for web search
+            # WEB SEARCH
             search_context = ""
             search_performed = False
             
@@ -676,10 +668,11 @@ IMPORTANT:
                 full_response += token
                 yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
             
-            await save_message(db, conversation_id, "assistant", full_response, chosen_model, 0)
+            # ✅ FIXED: capture message_id and include in done event
+            assistant_msg_id = await save_message(db, conversation_id, "assistant", full_response, chosen_model, 0)
             context_manager.add_message(conversation_id, "assistant", full_response)
             
-            yield f"data: {json.dumps({'type': 'done', 'full_response': full_response, 'files_used': files_used})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'full_response': full_response, 'files_used': files_used, 'message_id': assistant_msg_id, 'conversation_id': conversation_id})}\n\n"
             
         except Exception as e:
             print(f"❌ Stream error: {e}")
@@ -747,7 +740,6 @@ async def regenerate_response(
         
         print(f"🔄 Regenerating response for: '{user_message[:50]}...'")
         
-        # Get file context for regeneration
         file_context = ""
         files_used = 0
         

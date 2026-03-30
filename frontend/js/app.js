@@ -323,6 +323,61 @@ function removeTypingIndicator() {
     if (indicator) indicator.remove();
 }
 
+// ============================================================================
+// REAL STREAMING — tokens appear as AI generates them (#15)
+// ============================================================================
+
+function createStreamingMessage() {
+    removeTypingIndicator();
+    const container = document.getElementById('messagesContainer');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message assistant';
+    const contentId = 'stream-' + Date.now();
+
+    messageDiv.innerHTML = `
+        <div class="message-header">
+            <div class="avatar assistant">✦</div>
+            <div class="sender-name">OmniAI</div>
+        </div>
+        <div class="message-content markdown-body" id="${contentId}">
+            <span class="streaming-cursor"></span>
+        </div>
+    `;
+
+    container.appendChild(messageDiv);
+    scrollToBottom();
+
+    return { messageDiv, contentId };
+}
+
+function finalizeStreamingMessage(messageDiv, contentId, fullText, messageId) {
+    const contentDiv = document.getElementById(contentId);
+    if (!contentDiv) return;
+
+    // Render final markdown
+    contentDiv.innerHTML = renderMarkdown(fullText);
+    highlightCodeBlocks(contentDiv);
+
+    // Add message ID and action buttons
+    if (messageId) {
+        messageDiv.dataset.messageId = messageId;
+        const actionsHtml = `
+            <div class="message-actions">
+                <button class="regenerate-btn" onclick="regenerateResponse('${messageId}')">🔄 Regenerate</button>
+            </div>
+            <div class="feedback-buttons">
+                <button class="feedback-btn thumbs-up" onclick="submitFeedback('${messageId}', 1)">👍 Helpful</button>
+                <button class="feedback-btn thumbs-down" onclick="submitFeedback('${messageId}', -1)">👎 Not helpful</button>
+            </div>
+        `;
+        messageDiv.insertAdjacentHTML('beforeend', actionsHtml);
+    }
+
+    setTimeout(addRunButtons, 100);
+    scrollToBottom();
+}
+
+// Fallback fake streaming (used if SSE fails)
 function streamAssistantMessage(text, messageId = null) {
     removeTypingIndicator();
     const container = document.getElementById('messagesContainer');
@@ -364,11 +419,9 @@ function streamAssistantMessage(text, messageId = null) {
             contentDiv.textContent = rawText;
             contentDiv.appendChild(cursor);
             scrollToBottom();
-            
             let delay = 15;
             if (text[index - 1] === ' ') delay = 5;
             else if (['.', '!', '?', ','].includes(text[index - 1])) delay = 60;
-            
             setTimeout(typeNextChar, delay);
         } else {
             cursor.remove();
@@ -629,7 +682,6 @@ function addRunButtons() {
             code.includes('if ') || code.includes(' = ') || /^\s*\w+\s*=/.test(code);
         
         if (isPythonLike && code.trim().length > 0) {
-            // Copy button — uses execCommand for HTTP compatibility
             const copyBtn = document.createElement('button');
             copyBtn.className = 'copy-code-btn';
             copyBtn.innerHTML = '📋 Copy';
@@ -638,7 +690,6 @@ function addRunButtons() {
                 copyToClipboard(codeElement.textContent, copyBtn, '📋 Copy');
             };
 
-            // Run button
             const runBtn = document.createElement('button');
             runBtn.className = 'run-code-btn';
             runBtn.innerHTML = '▶️ Run';
@@ -953,7 +1004,7 @@ function toggleTheme() {
 })();
 
 // ============================================================================
-// SEND MESSAGE
+// SEND MESSAGE — Real SSE streaming (#15)
 // ============================================================================
 
 async function sendMessage() {
@@ -977,6 +1028,7 @@ async function sendMessage() {
         input.style.height = 'auto';
     } else if (!uploadedFilesList) return;
     
+    // Code execution path (unchanged)
     if (message && detectCodeExecution(message)) {
         const code = extractCodeFromMessage(message);
         if (code) {
@@ -990,11 +1042,17 @@ async function sendMessage() {
         }
     }
     
-    addTypingIndicator();
     const sendButton = document.getElementById('sendButton');
     if (sendButton) sendButton.disabled = true;
-    
+    isStreaming = true;
+
+    addTypingIndicator();
+
     try {
+        const token = getAccessToken();
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
         const requestBody = {
             message: message || "I uploaded some files. Please analyze them.",
             conversation_id: conversationId
@@ -1002,24 +1060,118 @@ async function sendMessage() {
         if (uploadedFilesList && uploadedFilesList.length > 0) {
             requestBody.file_ids = uploadedFilesList.map(f => f.file_id);
         }
-        const response = await authFetch('/api/v1/chat', {
+
+        const response = await fetch(`${API_BASE}/api/v1/chat/stream`, {
             method: 'POST',
+            headers,
             body: JSON.stringify(requestBody)
         });
-        const data = await response.json();
-        if (response.ok) {
-            conversationId = data.conversation_id;
-            streamAssistantMessage(data.response, data.message_id);
-            loadConversations();
-        } else {
-            removeTypingIndicator();
-            streamAssistantMessage(`⚠️ Error: ${data.detail || 'Unknown error'}`);
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
         }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let streamStarted = false;
+        let messageDiv = null;
+        let contentId = null;
+        let rawText = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // keep incomplete line
+
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                const jsonStr = line.slice(6).trim();
+                if (!jsonStr) continue;
+
+                let event;
+                try { event = JSON.parse(jsonStr); } catch { continue; }
+
+                if (event.type === 'conversation_id') {
+                    conversationId = event.conversation_id;
+                }
+
+                else if (event.type === 'status') {
+                    // Update typing indicator text
+                    const indicator = document.getElementById('typing-indicator');
+                    if (indicator) {
+                        const dots = indicator.querySelector('.typing-indicator');
+                        if (dots) dots.textContent = event.message;
+                    }
+                }
+
+                else if (event.type === 'token') {
+                    // First token — swap typing indicator for message bubble
+                    if (!streamStarted) {
+                        removeTypingIndicator();
+                        const created = createStreamingMessage();
+                        messageDiv = created.messageDiv;
+                        contentId = created.contentId;
+                        streamStarted = true;
+                    }
+
+                    rawText += event.token;
+                    const contentDiv = document.getElementById(contentId);
+                    if (contentDiv) {
+                        contentDiv.textContent = rawText;
+                        // Keep cursor at end
+                        const cursor = contentDiv.querySelector('.streaming-cursor');
+                        if (!cursor) {
+                            const c = document.createElement('span');
+                            c.className = 'streaming-cursor';
+                            contentDiv.appendChild(c);
+                        }
+                        scrollToBottom();
+                    }
+                }
+
+                else if (event.type === 'done') {
+                    // Finalize — render markdown, add buttons
+                    finalizeStreamingMessage(messageDiv, contentId, event.full_response || rawText, event.message_id);
+                    conversationId = event.conversation_id || conversationId;
+                    loadConversations();
+                }
+
+                else if (event.type === 'error') {
+                    removeTypingIndicator();
+                    streamAssistantMessage(`⚠️ Error: ${event.error}`);
+                }
+            }
+        }
+
     } catch (error) {
-        console.error('Error:', error);
+        console.error('Stream error:', error);
         removeTypingIndicator();
-        streamAssistantMessage('⚠️ Could not connect to server.');
+        // Fallback to non-streaming
+        try {
+            const response = await authFetch('/api/v1/chat', {
+                method: 'POST',
+                body: JSON.stringify({
+                    message: message || "I uploaded some files. Please analyze them.",
+                    conversation_id: conversationId
+                })
+            });
+            const data = await response.json();
+            if (response.ok) {
+                conversationId = data.conversation_id;
+                streamAssistantMessage(data.response, data.message_id);
+                loadConversations();
+            } else {
+                streamAssistantMessage(`⚠️ Error: ${data.detail || 'Unknown error'}`);
+            }
+        } catch (fallbackError) {
+            streamAssistantMessage('⚠️ Could not connect to server.');
+        }
     } finally {
+        isStreaming = false;
         if (sendButton) sendButton.disabled = false;
     }
 }
@@ -1081,7 +1233,7 @@ async function submitFeedback(messageId, rating) {
 }
 
 // ============================================================================
-// COPY CODE — uses execCommand for HTTP compatibility
+// COPY CODE
 // ============================================================================
 
 function copyCode(button) {
