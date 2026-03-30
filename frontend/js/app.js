@@ -1,5 +1,5 @@
 // ============================================================================
-// OmniAI - Core Chat Application (Steps 1-55)
+// OmniAI - Core Chat Application
 // ============================================================================
 
 const API_BASE = window.location.hostname === 'localhost' 
@@ -91,6 +91,30 @@ function escapeHtml(text) {
 function scrollToBottom() {
     const container = document.getElementById('messagesContainer');
     if (container) container.scrollTop = container.scrollHeight;
+}
+
+// ============================================================================
+// COPY HELPER — works on HTTP (no HTTPS required)
+// ============================================================================
+
+function copyToClipboard(text, button, originalLabel) {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    textarea.style.top = '0';
+    textarea.style.left = '0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    try {
+        document.execCommand('copy');
+        button.innerHTML = '✅ Copied!';
+    } catch (e) {
+        button.innerHTML = '❌ Failed';
+    }
+    document.body.removeChild(textarea);
+    setTimeout(() => { button.innerHTML = originalLabel; }, 2000);
 }
 
 // ============================================================================
@@ -605,19 +629,16 @@ function addRunButtons() {
             code.includes('if ') || code.includes(' = ') || /^\s*\w+\s*=/.test(code);
         
         if (isPythonLike && code.trim().length > 0) {
-            // ✅ Copy button
+            // Copy button — uses execCommand for HTTP compatibility
             const copyBtn = document.createElement('button');
             copyBtn.className = 'copy-code-btn';
             copyBtn.innerHTML = '📋 Copy';
             copyBtn.onclick = (e) => {
                 e.stopPropagation();
-                navigator.clipboard.writeText(codeElement.textContent).then(() => {
-                    copyBtn.innerHTML = '✅ Copied!';
-                    setTimeout(() => { copyBtn.innerHTML = '📋 Copy'; }, 2000);
-                });
+                copyToClipboard(codeElement.textContent, copyBtn, '📋 Copy');
             };
 
-            // ✅ Run button
+            // Run button
             const runBtn = document.createElement('button');
             runBtn.className = 'run-code-btn';
             runBtn.innerHTML = '▶️ Run';
@@ -1060,26 +1081,12 @@ async function submitFeedback(messageId, rating) {
 }
 
 // ============================================================================
-// COPY CODE
+// COPY CODE — uses execCommand for HTTP compatibility
 // ============================================================================
 
 function copyCode(button) {
     const wrapper = button.closest('.code-block-wrapper') || button.closest('pre');
     const codeEl = wrapper.querySelector('code') || wrapper.querySelector('pre');
     const code = codeEl ? codeEl.textContent : '';
-    navigator.clipboard.writeText(code).then(() => {
-        const original = button.innerHTML;
-        button.innerHTML = '✅ Copied!';
-        setTimeout(() => { button.innerHTML = original; }, 2000);
-    }).catch(() => {
-        const textarea = document.createElement('textarea');
-        textarea.value = code;
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textarea);
-        const original = button.innerHTML;
-        button.innerHTML = '✅ Copied!';
-        setTimeout(() => { button.innerHTML = original; }, 2000);
-    });
+    copyToClipboard(code, button, '📋 Copy');
 }
