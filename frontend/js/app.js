@@ -9,6 +9,7 @@ const API_BASE = window.location.hostname === 'localhost'
 var conversationId = null;
 var isStreaming = false;
 var attachedFiles = [];
+var lastFailedMessage = null; // ← #16: store for retry
 
 // ============================================================================
 // MARKDOWN + SYNTAX HIGHLIGHTING SETUP
@@ -94,7 +95,7 @@ function scrollToBottom() {
 }
 
 // ============================================================================
-// COPY HELPER — works on HTTP (no HTTPS required)
+// COPY HELPER — works on HTTP
 // ============================================================================
 
 function copyToClipboard(text, button, originalLabel) {
@@ -186,6 +187,7 @@ function newChat() { startNewConversation(); }
 
 function startNewConversation() {
     conversationId = null;
+    lastFailedMessage = null;
     const container = document.getElementById('messagesContainer');
     if (container) container.innerHTML = '';
     showWelcome();
@@ -298,7 +300,12 @@ function addAssistantMessage(text, messageId = null, isHtml = false) {
     setTimeout(addRunButtons, 100);
 }
 
-function addTypingIndicator() {
+// ============================================================================
+// LOADING INDICATOR — #16: shows real status messages
+// ============================================================================
+
+function addTypingIndicator(statusText = 'Thinking...') {
+    removeTypingIndicator();
     const container = document.getElementById('messagesContainer');
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message assistant';
@@ -308,19 +315,76 @@ function addTypingIndicator() {
             <div class="avatar assistant">✦</div>
             <div class="sender-name">OmniAI</div>
         </div>
-        <div class="typing-indicator">
-            <div class="typing-dot"></div>
-            <div class="typing-dot"></div>
-            <div class="typing-dot"></div>
+        <div class="loading-state">
+            <div class="loading-dots">
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+            </div>
+            <span class="loading-status" id="loadingStatus">${escapeHtml(statusText)}</span>
         </div>
     `;
     container.appendChild(messageDiv);
     scrollToBottom();
 }
 
+function updateLoadingStatus(text) {
+    const statusEl = document.getElementById('loadingStatus');
+    if (statusEl) statusEl.textContent = text;
+}
+
 function removeTypingIndicator() {
     const indicator = document.getElementById('typing-indicator');
     if (indicator) indicator.remove();
+}
+
+// ============================================================================
+// ERROR MESSAGE — #16: with inline + below retry buttons
+// ============================================================================
+
+function addErrorMessage(errorText, retriable = true) {
+    removeTypingIndicator();
+    const container = document.getElementById('messagesContainer');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message assistant error-message';
+    messageDiv.id = 'error-message';
+
+    const retryBtns = retriable ? `
+        <div class="error-actions">
+            <button class="retry-btn-inline" onclick="retryLastMessage()" title="Retry">🔄 Retry</button>
+        </div>
+        <div class="retry-below">
+            <button class="retry-btn-below" onclick="retryLastMessage()">🔄 Try again</button>
+        </div>
+    ` : '';
+
+    messageDiv.innerHTML = `
+        <div class="message-header">
+            <div class="avatar assistant error-avatar">✦</div>
+            <div class="sender-name">OmniAI</div>
+        </div>
+        <div class="error-content">
+            <div class="error-icon">⚠️</div>
+            <div class="error-text">${escapeHtml(errorText)}</div>
+            ${retryBtns}
+        </div>
+    `;
+
+    container.appendChild(messageDiv);
+    scrollToBottom();
+}
+
+function retryLastMessage() {
+    if (!lastFailedMessage) return;
+    // Remove error message
+    const errMsg = document.getElementById('error-message');
+    if (errMsg) errMsg.remove();
+    // Restore message to input and resend
+    const input = document.getElementById('messageInput');
+    if (input) {
+        input.value = lastFailedMessage;
+        sendMessage();
+    }
 }
 
 // ============================================================================
@@ -354,11 +418,9 @@ function finalizeStreamingMessage(messageDiv, contentId, fullText, messageId) {
     const contentDiv = document.getElementById(contentId);
     if (!contentDiv) return;
 
-    // Render final markdown
     contentDiv.innerHTML = renderMarkdown(fullText);
     highlightCodeBlocks(contentDiv);
 
-    // Add message ID and action buttons
     if (messageId) {
         messageDiv.dataset.messageId = messageId;
         const actionsHtml = `
@@ -377,7 +439,7 @@ function finalizeStreamingMessage(messageDiv, contentId, fullText, messageId) {
     scrollToBottom();
 }
 
-// Fallback fake streaming (used if SSE fails)
+// Fallback fake streaming
 function streamAssistantMessage(text, messageId = null) {
     removeTypingIndicator();
     const container = document.getElementById('messagesContainer');
@@ -697,16 +759,12 @@ function addRunButtons() {
                 e.stopPropagation();
                 runBtn.disabled = true;
                 runBtn.innerHTML = '⏳ Running...';
-                
                 const result = await executeCode(code);
-                
                 const existingResult = pre.parentElement.querySelector('.code-result');
                 if (existingResult) existingResult.remove();
-                
                 const resultDiv = document.createElement('div');
                 resultDiv.innerHTML = formatCodeResult(result);
                 pre.insertAdjacentElement('afterend', resultDiv.firstElementChild);
-                
                 runBtn.disabled = false;
                 runBtn.innerHTML = '▶️ Run';
             };
@@ -840,8 +898,8 @@ async function saveEdit(messageId, buttonElement) {
         });
         const data = await response.json();
         if (response.ok) streamAssistantMessage(data.response, data.message_id);
-        else { removeTypingIndicator(); streamAssistantMessage(`⚠️ Error: ${data.detail || 'Unknown error'}`); }
-    } catch (error) { removeTypingIndicator(); streamAssistantMessage('⚠️ Could not connect to server.'); }
+        else { removeTypingIndicator(); addErrorMessage(data.detail || 'Unknown error'); }
+    } catch (error) { removeTypingIndicator(); addErrorMessage('Could not connect to server.'); }
 }
 
 function cancelEdit(buttonElement, originalText) {
@@ -1004,7 +1062,7 @@ function toggleTheme() {
 })();
 
 // ============================================================================
-// SEND MESSAGE — Real SSE streaming (#15)
+// SEND MESSAGE — Real SSE streaming with loading states (#15 + #16)
 // ============================================================================
 
 async function sendMessage() {
@@ -1012,7 +1070,10 @@ async function sendMessage() {
     const input = document.getElementById('messageInput');
     const message = input.value.trim();
     if (!message && attachedFiles.length === 0) return;
-    
+
+    // Store for retry
+    if (message) lastFailedMessage = message;
+
     var uploadedFilesList = null;
     if (attachedFiles.length > 0) {
         uploadedFilesList = await uploadFiles();
@@ -1028,11 +1089,11 @@ async function sendMessage() {
         input.style.height = 'auto';
     } else if (!uploadedFilesList) return;
     
-    // Code execution path (unchanged)
+    // Code execution path
     if (message && detectCodeExecution(message)) {
         const code = extractCodeFromMessage(message);
         if (code) {
-            addTypingIndicator();
+            addTypingIndicator('Running code...');
             const codeResult = await executeCode(code);
             removeTypingIndicator();
             const resultHtml = formatCodeResult(codeResult);
@@ -1046,7 +1107,7 @@ async function sendMessage() {
     if (sendButton) sendButton.disabled = true;
     isStreaming = true;
 
-    addTypingIndicator();
+    addTypingIndicator('Thinking...');
 
     try {
         const token = getAccessToken();
@@ -1067,9 +1128,7 @@ async function sendMessage() {
             body: JSON.stringify(requestBody)
         });
 
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
+        if (!response.ok) throw new Error(`Server error ${response.status}`);
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -1085,7 +1144,7 @@ async function sendMessage() {
 
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
-            buffer = lines.pop(); // keep incomplete line
+            buffer = lines.pop();
 
             for (const line of lines) {
                 if (!line.startsWith('data: ')) continue;
@@ -1100,29 +1159,26 @@ async function sendMessage() {
                 }
 
                 else if (event.type === 'status') {
-                    // Update typing indicator text
-                    const indicator = document.getElementById('typing-indicator');
-                    if (indicator) {
-                        const dots = indicator.querySelector('.typing-indicator');
-                        if (dots) dots.textContent = event.message;
-                    }
+                    // Show meaningful status in loading indicator
+                    const statusMap = {
+                        'Searching web...': '🔍 Searching web...',
+                        'Generating response...': '⚡ Generating...',
+                        'Reading files...': '📄 Reading files...',
+                    };
+                    updateLoadingStatus(statusMap[event.message] || event.message);
                 }
 
                 else if (event.type === 'token') {
-                    // First token — swap typing indicator for message bubble
                     if (!streamStarted) {
-                        removeTypingIndicator();
                         const created = createStreamingMessage();
                         messageDiv = created.messageDiv;
                         contentId = created.contentId;
                         streamStarted = true;
                     }
-
                     rawText += event.token;
                     const contentDiv = document.getElementById(contentId);
                     if (contentDiv) {
                         contentDiv.textContent = rawText;
-                        // Keep cursor at end
                         const cursor = contentDiv.querySelector('.streaming-cursor');
                         if (!cursor) {
                             const c = document.createElement('span');
@@ -1134,15 +1190,14 @@ async function sendMessage() {
                 }
 
                 else if (event.type === 'done') {
-                    // Finalize — render markdown, add buttons
                     finalizeStreamingMessage(messageDiv, contentId, event.full_response || rawText, event.message_id);
                     conversationId = event.conversation_id || conversationId;
+                    lastFailedMessage = null; // clear on success
                     loadConversations();
                 }
 
                 else if (event.type === 'error') {
-                    removeTypingIndicator();
-                    streamAssistantMessage(`⚠️ Error: ${event.error}`);
+                    addErrorMessage(event.error || 'Something went wrong.');
                 }
             }
         }
@@ -1150,12 +1205,14 @@ async function sendMessage() {
     } catch (error) {
         console.error('Stream error:', error);
         removeTypingIndicator();
+
         // Fallback to non-streaming
         try {
+            updateLoadingStatus && addTypingIndicator('Reconnecting...');
             const response = await authFetch('/api/v1/chat', {
                 method: 'POST',
                 body: JSON.stringify({
-                    message: message || "I uploaded some files. Please analyze them.",
+                    message: message || "I uploaded some files.",
                     conversation_id: conversationId
                 })
             });
@@ -1163,12 +1220,13 @@ async function sendMessage() {
             if (response.ok) {
                 conversationId = data.conversation_id;
                 streamAssistantMessage(data.response, data.message_id);
+                lastFailedMessage = null;
                 loadConversations();
             } else {
-                streamAssistantMessage(`⚠️ Error: ${data.detail || 'Unknown error'}`);
+                addErrorMessage(data.detail || 'Server returned an error.');
             }
         } catch (fallbackError) {
-            streamAssistantMessage('⚠️ Could not connect to server.');
+            addErrorMessage('Could not connect to server. Check your connection and try again.');
         }
     } finally {
         isStreaming = false;
