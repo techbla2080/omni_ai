@@ -9,7 +9,7 @@ const API_BASE = window.location.hostname === 'localhost'
 var conversationId = null;
 var isStreaming = false;
 var attachedFiles = [];
-var lastFailedMessage = null; // ← #16: store for retry
+var lastFailedMessage = null;
 
 // ============================================================================
 // MARKDOWN + SYNTAX HIGHLIGHTING SETUP
@@ -119,6 +119,39 @@ function copyToClipboard(text, button, originalLabel) {
 }
 
 // ============================================================================
+// MEMORY INDICATOR — #17
+// ============================================================================
+
+function updateMemoryIndicator(count = null) {
+    let indicator = document.getElementById('memoryIndicator');
+    if (!indicator) {
+        const wrapper = document.querySelector('.input-wrapper');
+        if (!wrapper) return;
+        indicator = document.createElement('div');
+        indicator.id = 'memoryIndicator';
+        indicator.className = 'memory-indicator';
+        wrapper.insertBefore(indicator, wrapper.firstChild);
+    }
+
+    if (count === 0 || !conversationId) {
+        indicator.style.display = 'none';
+        return;
+    }
+
+    const messages = document.querySelectorAll('.message').length;
+    if (messages < 2) {
+        indicator.style.display = 'none';
+        return;
+    }
+
+    indicator.style.display = 'flex';
+    indicator.innerHTML = `
+        <span class="memory-dot"></span>
+        <span class="memory-text">🧠 Remembering ${messages} messages</span>
+    `;
+}
+
+// ============================================================================
 // CONVERSATIONS MANAGEMENT
 // ============================================================================
 
@@ -178,6 +211,7 @@ async function loadConversation(id) {
         loadConversations();
         closeSidebarOnMobile();
         scrollToBottom();
+        updateMemoryIndicator();
     } catch (error) {
         console.error('Error loading conversation:', error);
     }
@@ -193,6 +227,7 @@ function startNewConversation() {
     showWelcome();
     loadConversations();
     closeSidebarOnMobile();
+    updateMemoryIndicator(0);
     const input = document.getElementById('messageInput');
     if (input) input.focus();
 }
@@ -301,7 +336,7 @@ function addAssistantMessage(text, messageId = null, isHtml = false) {
 }
 
 // ============================================================================
-// LOADING INDICATOR — #16: shows real status messages
+// LOADING INDICATOR — #16
 // ============================================================================
 
 function addTypingIndicator(statusText = 'Thinking...') {
@@ -339,7 +374,7 @@ function removeTypingIndicator() {
 }
 
 // ============================================================================
-// ERROR MESSAGE — #16: with inline + below retry buttons
+// ERROR MESSAGE — #16
 // ============================================================================
 
 function addErrorMessage(errorText, retriable = true) {
@@ -376,10 +411,8 @@ function addErrorMessage(errorText, retriable = true) {
 
 function retryLastMessage() {
     if (!lastFailedMessage) return;
-    // Remove error message
     const errMsg = document.getElementById('error-message');
     if (errMsg) errMsg.remove();
-    // Restore message to input and resend
     const input = document.getElementById('messageInput');
     if (input) {
         input.value = lastFailedMessage;
@@ -388,7 +421,7 @@ function retryLastMessage() {
 }
 
 // ============================================================================
-// REAL STREAMING — tokens appear as AI generates them (#15)
+// REAL STREAMING
 // ============================================================================
 
 function createStreamingMessage() {
@@ -410,7 +443,6 @@ function createStreamingMessage() {
 
     container.appendChild(messageDiv);
     scrollToBottom();
-
     return { messageDiv, contentId };
 }
 
@@ -437,6 +469,7 @@ function finalizeStreamingMessage(messageDiv, contentId, fullText, messageId) {
 
     setTimeout(addRunButtons, 100);
     scrollToBottom();
+    updateMemoryIndicator(); // ← #17
 }
 
 // Fallback fake streaming
@@ -492,6 +525,7 @@ function streamAssistantMessage(text, messageId = null) {
             isStreaming = false;
             setTimeout(addRunButtons, 100);
             scrollToBottom();
+            updateMemoryIndicator(); // ← #17
         }
     }
     
@@ -693,7 +727,6 @@ function formatCodeResult(result) {
                 <span class="code-result-time">⏱️ ${timeText}</span>
             </div>
     `;
-    
     if (result.output) {
         html += `
             <div class="code-result-section">
@@ -1062,7 +1095,7 @@ function toggleTheme() {
 })();
 
 // ============================================================================
-// SEND MESSAGE — Real SSE streaming with loading states (#15 + #16)
+// SEND MESSAGE — Real SSE streaming (#15 + #16)
 // ============================================================================
 
 async function sendMessage() {
@@ -1071,7 +1104,6 @@ async function sendMessage() {
     const message = input.value.trim();
     if (!message && attachedFiles.length === 0) return;
 
-    // Store for retry
     if (message) lastFailedMessage = message;
 
     var uploadedFilesList = null;
@@ -1089,7 +1121,6 @@ async function sendMessage() {
         input.style.height = 'auto';
     } else if (!uploadedFilesList) return;
     
-    // Code execution path
     if (message && detectCodeExecution(message)) {
         const code = extractCodeFromMessage(message);
         if (code) {
@@ -1159,7 +1190,6 @@ async function sendMessage() {
                 }
 
                 else if (event.type === 'status') {
-                    // Show meaningful status in loading indicator
                     const statusMap = {
                         'Searching web...': '🔍 Searching web...',
                         'Generating response...': '⚡ Generating...',
@@ -1192,7 +1222,7 @@ async function sendMessage() {
                 else if (event.type === 'done') {
                     finalizeStreamingMessage(messageDiv, contentId, event.full_response || rawText, event.message_id);
                     conversationId = event.conversation_id || conversationId;
-                    lastFailedMessage = null; // clear on success
+                    lastFailedMessage = null;
                     loadConversations();
                 }
 
@@ -1205,10 +1235,8 @@ async function sendMessage() {
     } catch (error) {
         console.error('Stream error:', error);
         removeTypingIndicator();
-
-        // Fallback to non-streaming
         try {
-            updateLoadingStatus && addTypingIndicator('Reconnecting...');
+            addTypingIndicator('Reconnecting...');
             const response = await authFetch('/api/v1/chat', {
                 method: 'POST',
                 body: JSON.stringify({
