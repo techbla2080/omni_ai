@@ -119,6 +119,23 @@ function copyToClipboard(text, button, originalLabel) {
 }
 
 // ============================================================================
+// #20 — User initials helper
+// ============================================================================
+
+function getUserInitial() {
+    try {
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const raw = user.name || user.email || '?';
+        const parts = raw.trim().split(/\s+/);
+        let initials = parts[0][0].toUpperCase();
+        if (parts.length > 1) initials += parts[parts.length - 1][0].toUpperCase();
+        return initials;
+    } catch (e) {
+        return '?';
+    }
+}
+
+// ============================================================================
 // MEMORY INDICATOR — #17
 // ============================================================================
 
@@ -287,9 +304,12 @@ function addUserMessage(text, messageId = null, scroll = true) {
     messageDiv.className = 'message user';
     if (messageId) messageDiv.dataset.messageId = messageId;
     
+    // #20 — use initials instead of emoji
+    const initial = getUserInitial();
+
     messageDiv.innerHTML = `
         <div class="message-header">
-            <div class="avatar user">👤</div>
+            <div class="avatar user avatar-initials">${initial}</div>
             <div class="sender-name">You</div>
         </div>
         <div class="message-content">${escapeHtml(text)}</div>
@@ -469,7 +489,7 @@ function finalizeStreamingMessage(messageDiv, contentId, fullText, messageId) {
 
     setTimeout(addRunButtons, 100);
     scrollToBottom();
-    updateMemoryIndicator(); // ← #17
+    updateMemoryIndicator();
 }
 
 // Fallback fake streaming
@@ -525,7 +545,7 @@ function streamAssistantMessage(text, messageId = null) {
             isStreaming = false;
             setTimeout(addRunButtons, 100);
             scrollToBottom();
-            updateMemoryIndicator(); // ← #17
+            updateMemoryIndicator();
         }
     }
     
@@ -560,9 +580,10 @@ function addFileMessage(files) {
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message user';
     const fileList = files.map(f => `📎 ${escapeHtml(f.filename)}`).join('<br>');
+    const initial = getUserInitial();
     messageDiv.innerHTML = `
         <div class="message-header">
-            <div class="avatar user">👤</div>
+            <div class="avatar user avatar-initials">${initial}</div>
             <div class="sender-name">You</div>
         </div>
         <div class="message-content">${fileList}</div>
@@ -1188,7 +1209,6 @@ async function sendMessage() {
                 if (event.type === 'conversation_id') {
                     conversationId = event.conversation_id;
                 }
-
                 else if (event.type === 'status') {
                     const statusMap = {
                         'Searching web...': '🔍 Searching web...',
@@ -1197,7 +1217,6 @@ async function sendMessage() {
                     };
                     updateLoadingStatus(statusMap[event.message] || event.message);
                 }
-
                 else if (event.type === 'token') {
                     if (!streamStarted) {
                         const created = createStreamingMessage();
@@ -1218,14 +1237,12 @@ async function sendMessage() {
                         scrollToBottom();
                     }
                 }
-
                 else if (event.type === 'done') {
                     finalizeStreamingMessage(messageDiv, contentId, event.full_response || rawText, event.message_id);
                     conversationId = event.conversation_id || conversationId;
                     lastFailedMessage = null;
                     loadConversations();
                 }
-
                 else if (event.type === 'error') {
                     addErrorMessage(event.error || 'Something went wrong.');
                 }

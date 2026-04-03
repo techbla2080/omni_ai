@@ -2359,3 +2359,407 @@
     font-size: 12px;
     color: var(--accent-text);
 }
+
+/* ============================================================================
+   Task #17 — Memory Indicator
+   ============================================================================ */
+
+   .memory-indicator {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    margin-bottom: 8px;
+    background: var(--accent-subtle);
+    border: 1px solid rgba(124, 108, 240, 0.2);
+    border-radius: var(--radius-full);
+    width: fit-content;
+    font-size: 12px;
+    color: var(--accent-text);
+    font-weight: 500;
+    animation: memoryFadeIn 0.3s ease;
+}
+
+@keyframes memoryFadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.memory-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent-primary);
+    flex-shrink: 0;
+    animation: memoryPulse 2s ease-in-out infinite;
+}
+
+@keyframes memoryPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+}
+
+.memory-text {
+    font-size: 12px;
+    color: var(--accent-text);
+}
+
+/* ============================================================================
+   Task #16 — Loading States + Error Handling + Retry
+   ============================================================================ */
+
+.loading-state {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 24px 0 64px;
+    max-width: var(--chat-max-width);
+    margin: 0 auto;
+}
+
+.loading-dots {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+}
+
+.loading-status {
+    font-size: 13px;
+    color: var(--text-tertiary);
+    font-style: italic;
+    animation: statusFade 0.3s ease;
+}
+
+@keyframes statusFade {
+    from { opacity: 0; transform: translateY(2px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.error-message .avatar.error-avatar {
+    background: linear-gradient(135deg, var(--danger), #c0392b);
+}
+
+.error-content {
+    max-width: var(--chat-max-width);
+    margin: 0 auto;
+    padding: 0 24px 0 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.error-icon {
+    font-size: 16px;
+}
+
+.error-text {
+    font-size: 14px;
+    color: var(--danger);
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+    line-height: 1.5;
+}
+
+.error-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.retry-btn-inline {
+    padding: 5px 12px;
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--danger);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: var(--radius-sm);
+    font-size: 12.5px;
+    font-family: var(--font-primary);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.retry-btn-inline:hover {
+    background: rgba(239, 68, 68, 0.18);
+    border-color: var(--danger);
+}
+
+.retry-below {
+    margin-top: 4px;
+}
+
+.retry-btn-below {
+    padding: 8px 18px;
+    background: var(--accent-primary);
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-family: var(--font-primary);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.retry-btn-below:hover {
+    background: var(--accent-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+}
+
+.retry-btn-below:active {
+    transform: translateY(0);
+}
+
+/* ============================================================================
+   Task #20 — User Avatar with Initials
+   ============================================================================ */
+
+.user-avatar-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: var(--radius-full);
+    background: linear-gradient(135deg, var(--accent-primary), #e07850);
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-fast);
+    box-shadow: 0 2px 8px rgba(124, 108, 240, 0.3);
+}
+
+.user-avatar-btn:hover {
+    transform: scale(1.08);
+    box-shadow: 0 4px 12px rgba(124, 108, 240, 0.4);
+}
+
+.user-avatar-text {
+    color: white;
+    font-size: 13px;
+    font-weight: 700;
+    font-family: var(--font-primary);
+    letter-spacing: 0.3px;
+}
+
+/* Dropdown header with avatar */
+.user-dropdown-header {
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.dropdown-avatar {
+    width: 38px;
+    height: 38px;
+    border-radius: var(--radius-full);
+    background: linear-gradient(135deg, var(--accent-primary), #e07850);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    color: white;
+    font-family: var(--font-primary);
+    flex-shrink: 0;
+}
+
+.dropdown-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.dropdown-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dropdown-email {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ============================================================================
+   Task #18 — Mobile Responsive Fixes
+   ============================================================================ */
+
+/* Better touch targets on mobile */
+@media (max-width: 768px) {
+
+    /* Header */
+    .header {
+        padding: 0 12px;
+    }
+
+    .new-chat-btn {
+        display: none; /* Hidden on mobile — use sidebar instead */
+    }
+
+    /* Loading + error states */
+    .loading-state,
+    .error-content {
+        padding-left: 48px;
+        padding-right: 16px;
+    }
+
+    /* Memory indicator */
+    .memory-indicator {
+        font-size: 11px;
+        padding: 5px 10px;
+    }
+
+    /* Input area */
+    .input-area {
+        padding: 8px 12px 16px;
+    }
+
+    .input-container {
+        padding: 6px 8px;
+        border-radius: var(--radius-md);
+    }
+
+    .message-input {
+        font-size: 16px; /* Prevents iOS zoom on focus */
+    }
+
+    .attach-button,
+    .send-button {
+        width: 38px;
+        height: 38px;
+        flex-shrink: 0;
+    }
+
+    /* Messages */
+    .message {
+        padding: 16px 0;
+    }
+
+    .message-content {
+        padding: 0 12px 0 48px;
+        font-size: 14.5px;
+    }
+
+    .message-header {
+        padding: 0 12px;
+    }
+
+    .message-edit-actions,
+    .message-actions,
+    .feedback-buttons,
+    .typing-indicator {
+        padding-left: 48px;
+        padding-right: 12px;
+    }
+
+    /* Code blocks on mobile */
+    .message-content pre {
+        font-size: 12px;
+        padding: 36px 10px 10px;
+    }
+
+    .run-code-btn {
+        font-size: 10px;
+        padding: 3px 8px;
+    }
+
+    .copy-code-btn {
+        right: 70px;
+        font-size: 10px;
+        padding: 3px 8px;
+    }
+
+    /* Welcome screen */
+    .welcome {
+        padding: 24px 16px;
+    }
+
+    .welcome h1 {
+        font-size: 22px;
+    }
+
+    .welcome p {
+        font-size: 14px;
+        margin-bottom: 24px;
+    }
+
+    .suggestions {
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+
+    .suggestion-card {
+        padding: 12px;
+    }
+
+    .suggestion-title {
+        font-size: 13px;
+    }
+
+    .suggestion-text {
+        font-size: 11.5px;
+    }
+
+    /* Sidebar full width on mobile */
+    .sidebar {
+        width: 85vw;
+        max-width: 320px;
+    }
+
+    /* User dropdown on mobile */
+    .user-dropdown {
+        right: -8px;
+        min-width: 200px;
+    }
+}
+
+@media (max-width: 480px) {
+    .header {
+        padding: 0 10px;
+    }
+
+    .message-content {
+        font-size: 14px;
+        padding: 0 10px 0 44px;
+    }
+
+    .message-header {
+        padding: 0 10px;
+    }
+
+    .welcome h1 {
+        font-size: 20px;
+    }
+
+    .suggestions {
+        grid-template-columns: 1fr;
+    }
+
+    /* Feedback buttons on small screens */
+    .feedback-btn {
+        font-size: 11px;
+        padding: 3px 8px;
+    }
+
+    /* Files toggle hidden on very small screens */
+    .files-toggle {
+        display: none;
+    }
+}
+
+/* Fix iOS safe area */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+    .input-area {
+        padding-bottom: calc(16px + env(safe-area-inset-bottom));
+    }
+}

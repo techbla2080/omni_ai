@@ -2,13 +2,39 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OmniAI</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+    <!-- #19: Title + Meta Tags -->
+    <title>OmniAI — The AI That Does Things</title>
+    <meta name="description" content="OmniAI is your intelligent AI assistant that reads emails, manages your calendar, analyzes files, and executes code — all through natural conversation.">
+    <meta name="keywords" content="AI assistant, productivity, Gmail, calendar, file analysis, code execution, India">
+    <meta name="author" content="OmniAI">
+    <meta name="theme-color" content="#7c6cf0">
+
+    <!-- Open Graph (WhatsApp, LinkedIn previews) -->
+    <meta property="og:title" content="OmniAI — The AI That Does Things">
+    <meta property="og:description" content="Your intelligent AI assistant for email, calendar, files and code.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="http://147.93.20.126">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="OmniAI — The AI That Does Things">
+    <meta name="twitter:description" content="Your intelligent AI assistant for email, calendar, files and code.">
+
+    <!-- #19: Favicon (SVG inline — no file needed) -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%237c6cf0'/><text y='.9em' font-size='70' x='50%' text-anchor='middle' dominant-baseline='auto' dy='0.1em'>✦</text></svg>">
+
+    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,500&display=swap" rel="stylesheet">
+
+    <!-- Styles -->
     <link rel="stylesheet" href="css/styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+
+    <!-- Scripts -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 </head>
@@ -35,19 +61,22 @@
             </button>
             <button class="new-chat-btn" onclick="newChat()">+ New Chat</button>
 
-            <!-- User Menu -->
+            <!-- #20: User Menu with initials avatar -->
             <div class="user-menu" id="userMenu">
                 <button class="user-avatar-btn" id="userAvatarBtn" onclick="toggleUserMenu()" title="Account">
                     <span class="user-avatar-text" id="userAvatarText">?</span>
                 </button>
                 <div class="user-dropdown" id="userDropdown">
                     <div class="user-dropdown-header">
-                        <span class="dropdown-name" id="dropdownName">User</span>
-                        <span class="dropdown-email" id="dropdownEmail">user@email.com</span>
+                        <div class="dropdown-avatar" id="dropdownAvatar">?</div>
+                        <div class="dropdown-info">
+                            <span class="dropdown-name" id="dropdownName">User</span>
+                            <span class="dropdown-email" id="dropdownEmail">user@email.com</span>
+                        </div>
                     </div>
                     <div class="user-dropdown-divider"></div>
-                    <a href="profile.html" class="user-dropdown-item">Profile & Settings</a>
-                    <button class="user-dropdown-item logout-item" onclick="logout()">Log out</button>
+                    <a href="profile.html" class="user-dropdown-item">⚙️ Profile & Settings</a>
+                    <button class="user-dropdown-item logout-item" onclick="logout()">🚪 Log out</button>
                 </div>
             </div>
         </div>
@@ -58,7 +87,7 @@
         <div class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <div class="sidebar-title">Conversations</div>
-                <input type="text" class="search-box" placeholder="Search chats..." id="searchBox" oninput="searchConversations()">
+                <input type="text" class="search-box" placeholder="Search chats..." id="searchBox" oninput="handleSearchInput(event)">
             </div>
             <div class="conversations-list" id="conversationsList">
                 <div class="empty-state">No conversations yet.<br>Start chatting to create one!</div>
@@ -152,7 +181,7 @@
     <script src="js/theme.js"></script>
     <script src="js/sidebar.js"></script>
     <script src="js/files.js"></script>
-    <script src="/js/app.js?v=4"></script>
+    <script src="/js/app.js?v=8"></script>
 
     <script>
         // Initialize syntax highlighting
@@ -170,6 +199,19 @@
             textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
         }
 
+        // #20: User avatar with initials
+        function setUserAvatar(name, email) {
+            const raw = name || email || '?';
+            const parts = raw.trim().split(/\s+/);
+            let initials = parts[0][0].toUpperCase();
+            if (parts.length > 1) initials += parts[parts.length - 1][0].toUpperCase();
+
+            document.getElementById('userAvatarText').textContent = initials;
+            document.getElementById('dropdownAvatar').textContent = initials;
+            document.getElementById('dropdownName').textContent = name || 'User';
+            document.getElementById('dropdownEmail').textContent = email || '';
+        }
+
         (async function() {
             if (!isAuthenticated()) {
                 window.location.href = 'login.html';
@@ -179,11 +221,9 @@
                 const response = await authFetch('/api/v1/auth/me');
                 if (response.ok) {
                     const user = await response.json();
-                    const initial = (user.name || user.email || '?')[0].toUpperCase();
-                    document.getElementById('userAvatarText').textContent = initial;
-                    document.getElementById('dropdownName').textContent = user.name || 'User';
-                    document.getElementById('dropdownEmail').textContent = user.email;
+                    setUserAvatar(user.name, user.email);
                     storeUser(user);
+
                     const prefResponse = await authFetch('/api/v1/auth/me/preferences');
                     if (prefResponse.ok) {
                         const prefs = await prefResponse.json();
