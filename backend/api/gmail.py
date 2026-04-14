@@ -22,7 +22,7 @@ from services.gmail_service import (
     mark_as_read
 )
 from api.auth import get_current_user
-from database.connection import get_db
+from database.database import get_db
 
 logger = logging.getLogger(__name__)
 
