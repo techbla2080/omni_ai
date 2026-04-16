@@ -50,7 +50,6 @@ class GmailQueryRequest(BaseModel):
 # ============================================================
 
 async def get_user_id(request: Request, db: AsyncSession) -> str:
-    """Get current user ID from JWT token in request"""
     from api.auth import get_current_user
     user_id = await get_current_user(request, db)
     return user_id
@@ -61,7 +60,6 @@ async def get_user_id(request: Request, db: AsyncSession) -> str:
 # ============================================================
 
 async def get_gmail_tokens(user_id: str, db: AsyncSession) -> dict:
-    """Get stored Gmail OAuth tokens for the current user"""
     result = await db.execute(
         text("SELECT gmail_tokens FROM users WHERE id = :user_id"),
         {"user_id": user_id}
@@ -85,10 +83,26 @@ async def connect_gmail(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    """Start Gmail OAuth flow — redirect user to Google"""
+    """Start Gmail OAuth flow — pass JWT as state so callback can save tokens"""
     try:
-        await get_user_id(request, db)  # verify logged in
-        auth_url = get_auth_url()
+        user_id = await get_user_id(request, db)
+
+        # Get the JWT token from the Authorization header to use as state
+        auth_header = request.headers.get("Authorization", "")
+        token = auth_header.replace("Bearer ", "").strip()
+        if not token:
+            # Try cookie
+            token = request.cookies.get("access_token", "")
+
+        # Pass token as state parameter
+        from services.gmail_service import get_oauth_flow
+        flow = get_oauth_flow()
+        auth_url, _ = flow.authorization_url(
+            access_type='offline',
+            include_granted_scopes='true',
+            prompt='consent',
+            state=token  # JWT token as state
+        )
         return {"auth_url": auth_url}
     except HTTPException:
         raise
@@ -104,17 +118,41 @@ async def gmail_callback(
     error: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db)
 ):
-    """Handle Google OAuth callback — exchange code for tokens"""
+    """Handle Google OAuth callback — exchange code for tokens and save them"""
     if error:
         return RedirectResponse(url=f"/?gmail_error={error}")
 
     try:
+        # Exchange code for tokens
         tokens = exchange_code_for_tokens(code)
         gmail_email = get_user_email(tokens)
         logger.info(f"Gmail connected for: {gmail_email}")
+
+        # Use state (JWT token) to identify user and save tokens
+        if state:
+            try:
+                from jose import jwt
+                from utils.config import settings
+
+                payload = jwt.decode(state, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+                user_id = payload.get("sub")
+
+                if user_id:
+                    tokens_json = json.dumps(tokens)
+                    await db.execute(
+                        text("UPDATE users SET gmail_tokens = :tokens, gmail_email = :email WHERE id = :user_id"),
+                        {"tokens": tokens_json, "email": gmail_email, "user_id": user_id}
+                    )
+                    await db.commit()
+                    logger.info(f"Tokens saved for user {user_id}")
+
+            except Exception as e:
+                logger.error(f"Error saving tokens from state: {e}")
+
         return RedirectResponse(
             url=f"/?gmail_connected=true&gmail_email={gmail_email}"
         )
+
     except Exception as e:
         logger.error(f"Gmail callback error: {e}")
         return RedirectResponse(url=f"/?gmail_error=callback_failed")
@@ -197,7 +235,6 @@ async def get_inbox(
     max_results: int = Query(10, le=50),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get inbox emails"""
     user_id = await get_user_id(request, db)
     tokens = await get_gmail_tokens(user_id, db)
     try:
@@ -213,7 +250,6 @@ async def get_unread(
     max_results: int = Query(10, le=50),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get unread emails"""
     user_id = await get_user_id(request, db)
     tokens = await get_gmail_tokens(user_id, db)
     try:
@@ -231,7 +267,6 @@ async def search_gmail(
     max_results: int = Query(10, le=50),
     db: AsyncSession = Depends(get_db)
 ):
-    """Search emails with Gmail query"""
     user_id = await get_user_id(request, db)
     tokens = await get_gmail_tokens(user_id, db)
     try:
@@ -247,7 +282,6 @@ async def mark_email_read(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    """Mark email as read"""
     user_id = await get_user_id(request, db)
     tokens = await get_gmail_tokens(user_id, db)
     success = mark_as_read(tokens, message_id)
@@ -264,7 +298,6 @@ async def send_gmail(
     body: SendEmailRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    """Send an email"""
     user_id = await get_user_id(request, db)
     tokens = await get_gmail_tokens(user_id, db)
     try:
@@ -290,14 +323,12 @@ async def ask_about_email(
     body: GmailQueryRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    """Ask AI a question about your emails"""
     from services.llm import llm_service
 
     user_id = await get_user_id(request, db)
     tokens = await get_gmail_tokens(user_id, db)
 
     try:
-        # Determine Gmail search query from user's question
         query = 'in:inbox'
         user_q = body.query.lower()
 
