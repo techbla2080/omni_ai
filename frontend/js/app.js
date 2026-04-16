@@ -62,6 +62,12 @@ document.addEventListener('DOMContentLoaded', () => {
         overlay.onclick = toggleSidebar;
         document.body.appendChild(overlay);
     }
+
+    // Gmail init
+    setTimeout(() => {
+        injectGmailButton();
+        initGmail();
+    }, 1500);
 });
 
 // ============================================================================
@@ -95,7 +101,7 @@ function scrollToBottom() {
 }
 
 // ============================================================================
-// COPY HELPER — works on HTTP
+// COPY HELPER
 // ============================================================================
 
 function copyToClipboard(text, button, originalLabel) {
@@ -169,6 +175,343 @@ function updateMemoryIndicator(count = null) {
 }
 
 // ============================================================================
+// GMAIL INTEGRATION — #24 #25 #26 #27
+// ============================================================================
+
+var gmailConnected = false;
+var gmailEmail = '';
+
+async function initGmail() {
+    try {
+        const response = await authFetch('/api/v1/gmail/status');
+        if (response.ok) {
+            const data = await response.json();
+            gmailConnected = data.connected;
+            gmailEmail = data.email || '';
+            updateGmailButton();
+        }
+    } catch (e) {
+        console.log('Gmail status check failed:', e);
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('gmail_connected') === 'true') {
+        const email = params.get('gmail_email') || '';
+        gmailConnected = true;
+        gmailEmail = email;
+        updateGmailButton();
+        addAssistantMessage(`✅ Gmail connected! (${email})\n\nYou can now:\n- "Show my unread emails"\n- "Search emails from [name]"\n- "Send email to [address]"\n- "Summarize my inbox"`);
+        window.history.replaceState({}, '', '/');
+    }
+    if (params.get('gmail_error')) {
+        addAssistantMessage(`❌ Gmail connection failed: ${params.get('gmail_error')}. Please try again.`);
+        window.history.replaceState({}, '', '/');
+    }
+}
+
+function updateGmailButton() {
+    let btn = document.getElementById('gmailBtn');
+    if (!btn) return;
+    if (gmailConnected) {
+        btn.innerHTML = `📧 ${gmailEmail || 'Gmail'}`;
+        btn.title = 'Gmail connected — click to disconnect';
+        btn.classList.add('gmail-connected');
+    } else {
+        btn.innerHTML = `📧 Connect Gmail`;
+        btn.title = 'Connect your Gmail account';
+        btn.classList.remove('gmail-connected');
+    }
+}
+
+function injectGmailButton() {
+    const inputContainer = document.querySelector('.input-container');
+    if (!inputContainer || document.getElementById('gmailBtn')) return;
+    const btn = document.createElement('button');
+    btn.id = 'gmailBtn';
+    btn.className = 'gmail-btn';
+    btn.innerHTML = '📧 Connect Gmail';
+    btn.title = 'Connect Gmail';
+    btn.onclick = handleGmailButtonClick;
+    const sendBtn = document.getElementById('sendButton');
+    if (sendBtn) inputContainer.insertBefore(btn, sendBtn);
+    else inputContainer.appendChild(btn);
+}
+
+async function handleGmailButtonClick() {
+    if (gmailConnected) {
+        if (confirm(`Disconnect Gmail (${gmailEmail})?`)) await disconnectGmail();
+    } else {
+        await connectGmail();
+    }
+}
+
+async function connectGmail() {
+    try {
+        const response = await authFetch('/api/v1/gmail/connect');
+        if (response.ok) {
+            const data = await response.json();
+            window.location.href = data.auth_url;
+        } else {
+            addAssistantMessage('❌ Could not start Gmail connection. Please try again.');
+        }
+    } catch (e) {
+        addAssistantMessage('❌ Gmail connection error: ' + e.message);
+    }
+}
+
+async function disconnectGmail() {
+    try {
+        await authFetch('/api/v1/gmail/disconnect', { method: 'DELETE' });
+        gmailConnected = false;
+        gmailEmail = '';
+        updateGmailButton();
+        addAssistantMessage('Gmail disconnected.');
+    } catch (e) {
+        addAssistantMessage('❌ Could not disconnect Gmail.');
+    }
+}
+
+function detectGmailIntent(message) {
+    const emailPatterns = [
+        /show.*(my )?(email|inbox|mail|message)/i,
+        /check.*(my )?(email|inbox|mail)/i,
+        /unread.*(email|mail|message)/i,
+        /read.*(my )?(email|mail)/i,
+        /what.*email/i,
+        /any.*(email|mail).*(from|about)/i,
+        /email.*(from|about|today|week|yesterday)/i,
+        /send.*email/i,
+        /compose.*email/i,
+        /write.*email/i,
+        /reply.*email/i,
+        /search.*(email|inbox|mail)/i,
+        /find.*(email|mail).*(from|about)/i,
+        /summarize.*(my )?(inbox|email)/i,
+        /urgent.*(email|mail)/i,
+        /inbox/i,
+    ];
+    return emailPatterns.some(p => p.test(message));
+}
+
+function detectSendIntent(message) {
+    return /send.*email|compose.*email|write.*email|draft.*email/i.test(message);
+}
+
+function detectSearchIntent(message) {
+    return /search.*email|find.*email|look.*email|email.*from|email.*about/i.test(message);
+}
+
+async function handleGmailMessage(message) {
+    if (!gmailConnected) {
+        addAssistantMessage(`To use Gmail features, connect your Gmail account first.\n\nClick the **📧 Connect Gmail** button below!`);
+        return true;
+    }
+    if (detectSendIntent(message)) { await handleSendEmailIntent(message); return true; }
+    if (detectSearchIntent(message)) { await handleSearchEmailIntent(message); return true; }
+    await handleAskEmailIntent(message);
+    return true;
+}
+
+async function handleAskEmailIntent(message) {
+    addTypingIndicator('📧 Reading your emails...');
+    try {
+        const response = await authFetch('/api/v1/gmail/ask', {
+            method: 'POST',
+            body: JSON.stringify({ query: message, max_results: 5 })
+        });
+        removeTypingIndicator();
+        if (response.ok) {
+            const data = await response.json();
+            addAssistantMessage(data.response);
+        } else {
+            addAssistantMessage('❌ Could not read emails. Please try again.');
+        }
+    } catch (e) {
+        removeTypingIndicator();
+        addAssistantMessage('❌ Gmail error: ' + e.message);
+    }
+}
+
+async function handleSearchEmailIntent(message) {
+    addTypingIndicator('🔍 Searching your emails...');
+    try {
+        let query = message.replace(/search.*email|find.*email|look.*for/gi, '').trim();
+        if (!query) query = 'in:inbox';
+        const response = await authFetch(`/api/v1/gmail/search?q=${encodeURIComponent(query)}&max_results=5`);
+        removeTypingIndicator();
+        if (response.ok) {
+            const data = await response.json();
+            if (data.emails.length === 0) addAssistantMessage(`No emails found for "${query}".`);
+            else displayEmailCards(data.emails, `Search results for "${query}"`);
+        } else {
+            addAssistantMessage('❌ Email search failed.');
+        }
+    } catch (e) {
+        removeTypingIndicator();
+        addAssistantMessage('❌ Search error: ' + e.message);
+    }
+}
+
+function displayEmailCards(emails, title = 'Your Emails') {
+    const container = document.getElementById('messagesContainer');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message assistant';
+    const emailCardsHtml = emails.map(email => `
+        <div class="email-card ${email.is_unread ? 'unread' : ''}">
+            <div class="email-card-header">
+                <div class="email-from">${escapeHtml(email.from)}</div>
+                <div class="email-date">${escapeHtml(email.date)}</div>
+            </div>
+            <div class="email-subject">${escapeHtml(email.subject)}</div>
+            <div class="email-snippet">${escapeHtml(email.snippet)}</div>
+            <div class="email-actions">
+                <button class="email-action-btn" onclick="replyToEmail('${email.id}', '${escapeHtml(email.from).replace(/'/g, "\\'")}', '${escapeHtml(email.subject).replace(/'/g, "\\'")}')">↩ Reply</button>
+                ${email.is_unread ? `<button class="email-action-btn" onclick="markRead('${email.id}', this)">✓ Mark Read</button>` : ''}
+            </div>
+        </div>
+    `).join('');
+    messageDiv.innerHTML = `
+        <div class="message-header">
+            <div class="avatar assistant">✦</div>
+            <div class="sender-name">OmniAI</div>
+        </div>
+        <div class="message-content">
+            <div class="email-list-header">📧 ${escapeHtml(title)} (${emails.length})</div>
+            <div class="email-list">${emailCardsHtml}</div>
+        </div>
+    `;
+    container.appendChild(messageDiv);
+    scrollToBottom();
+}
+
+async function markRead(messageId, button) {
+    try {
+        await authFetch(`/api/v1/gmail/read/${messageId}`, { method: 'POST' });
+        button.textContent = '✓ Read';
+        button.disabled = true;
+        const card = button.closest('.email-card');
+        if (card) card.classList.remove('unread');
+    } catch (e) {
+        console.error('Mark read error:', e);
+    }
+}
+
+async function handleSendEmailIntent(message) {
+    showComposeForm(message);
+}
+
+function showComposeForm(prefillMessage = '') {
+    const container = document.getElementById('messagesContainer');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message assistant';
+    const formId = 'compose-' + Date.now();
+    let toHint = '';
+    const toMatch = prefillMessage.match(/to\s+([\w.@]+)/i);
+    if (toMatch) toHint = toMatch[1];
+    messageDiv.innerHTML = `
+        <div class="message-header">
+            <div class="avatar assistant">✦</div>
+            <div class="sender-name">OmniAI</div>
+        </div>
+        <div class="message-content">
+            <div class="compose-form" id="${formId}">
+                <div class="compose-header">✉️ Compose Email</div>
+                <div class="compose-field">
+                    <label>To:</label>
+                    <input type="email" class="compose-input" id="${formId}-to" placeholder="recipient@email.com" value="${toHint}">
+                </div>
+                <div class="compose-field">
+                    <label>Subject:</label>
+                    <input type="text" class="compose-input" id="${formId}-subject" placeholder="Email subject">
+                </div>
+                <div class="compose-field">
+                    <label>Message:</label>
+                    <textarea class="compose-textarea" id="${formId}-body" rows="5" placeholder="Write your email here..."></textarea>
+                </div>
+                <div class="compose-actions">
+                    <button class="compose-send-btn" onclick="sendComposedEmail('${formId}')">📤 Send Email</button>
+                    <button class="compose-cancel-btn" onclick="this.closest('.message').remove()">✖ Cancel</button>
+                    <button class="compose-ai-btn" onclick="aiDraftEmail('${formId}', '${escapeHtml(prefillMessage).replace(/'/g, "\\'")}')">✨ AI Draft</button>
+                </div>
+            </div>
+        </div>
+    `;
+    container.appendChild(messageDiv);
+    scrollToBottom();
+    setTimeout(() => {
+        const toField = document.getElementById(`${formId}-to`);
+        if (toField && !toHint) toField.focus();
+        else { const s = document.getElementById(`${formId}-subject`); if (s) s.focus(); }
+    }, 100);
+}
+
+async function aiDraftEmail(formId, originalMessage) {
+    const toField = document.getElementById(`${formId}-to`);
+    const subjectField = document.getElementById(`${formId}-subject`);
+    const bodyField = document.getElementById(`${formId}-body`);
+    const to = toField ? toField.value : '';
+    const subject = subjectField ? subjectField.value : '';
+    const prompt = `Draft a professional email${to ? ` to ${to}` : ''}${subject ? ` about "${subject}"` : ''}. Original request: "${originalMessage}". Return only the email body text, no subject line.`;
+    bodyField.value = 'Drafting...';
+    bodyField.disabled = true;
+    try {
+        const response = await authFetch('/api/v1/chat', {
+            method: 'POST',
+            body: JSON.stringify({ message: prompt, conversation_id: null })
+        });
+        const data = await response.json();
+        bodyField.value = data.response || '';
+    } catch (e) {
+        bodyField.value = '';
+    } finally {
+        bodyField.disabled = false;
+        bodyField.focus();
+    }
+}
+
+async function sendComposedEmail(formId) {
+    const to = document.getElementById(`${formId}-to`)?.value?.trim();
+    const subject = document.getElementById(`${formId}-subject`)?.value?.trim();
+    const body = document.getElementById(`${formId}-body`)?.value?.trim();
+    if (!to || !subject || !body) { alert('Please fill in all fields.'); return; }
+    const sendBtn = document.querySelector(`#${formId} .compose-send-btn`);
+    if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = '⏳ Sending...'; }
+    try {
+        const response = await authFetch('/api/v1/gmail/send', {
+            method: 'POST',
+            body: JSON.stringify({ to, subject, body })
+        });
+        if (response.ok) {
+            const form = document.getElementById(formId);
+            if (form) form.innerHTML = `<div class="compose-success">✅ Email sent to ${escapeHtml(to)}!</div>`;
+        } else {
+            const data = await response.json();
+            alert('Failed to send: ' + (data.detail || 'Unknown error'));
+            if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = '📤 Send Email'; }
+        }
+    } catch (e) {
+        alert('Error: ' + e.message);
+        if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = '📤 Send Email'; }
+    }
+}
+
+async function replyToEmail(messageId, from, subject) {
+    const replySubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
+    showComposeForm('');
+    setTimeout(() => {
+        const forms = document.querySelectorAll('.compose-form');
+        const lastForm = forms[forms.length - 1];
+        if (lastForm) {
+            const formId = lastForm.id;
+            const toField = document.getElementById(`${formId}-to`);
+            const subjectField = document.getElementById(`${formId}-subject`);
+            if (toField) toField.value = from;
+            if (subjectField) subjectField.value = replySubject;
+        }
+    }, 100);
+}
+
+// ============================================================================
 // CONVERSATIONS MANAGEMENT
 // ============================================================================
 
@@ -176,17 +519,14 @@ async function loadConversations() {
     try {
         const response = await authFetch('/api/v1/chat/conversations?limit=50');
         if (!response.ok) return;
-        
         const data = await response.json();
         const conversations = data.conversations || data;
         const container = document.getElementById('conversationsList');
         if (!container) return;
-        
         if (!conversations || conversations.length === 0) {
             container.innerHTML = `<div class="empty-state">No conversations yet.<br>Start chatting to create one!</div>`;
             return;
         }
-        
         container.innerHTML = conversations.map(conv => `
             <div class="conversation-item ${conv.id === conversationId ? 'active' : ''}" 
                  onclick="loadConversation('${conv.id}')">
@@ -210,21 +550,17 @@ async function loadConversation(id) {
     try {
         const response = await authFetch('/api/v1/chat/conversations/' + id);
         if (!response.ok) return;
-        
         const data = await response.json();
         conversationId = id;
-        
         const container = document.getElementById('messagesContainer');
         container.innerHTML = '';
         hideWelcome();
-        
         if (data.messages && data.messages.length > 0) {
             data.messages.forEach(msg => {
                 if (msg.role === 'user') addUserMessage(msg.content, msg.id, false);
                 else addAssistantMessage(msg.content, msg.id);
             });
         }
-        
         loadConversations();
         closeSidebarOnMobile();
         scrollToBottom();
@@ -270,7 +606,6 @@ async function renameConversation(id, element) {
     element.appendChild(input);
     input.focus();
     input.select();
-    
     const saveTitle = async () => {
         const newTitle = input.value.trim() || currentTitle;
         element.textContent = newTitle;
@@ -287,7 +622,6 @@ async function renameConversation(id, element) {
             }
         }
     };
-    
     input.addEventListener('blur', saveTitle);
     input.addEventListener('keypress', (e) => { if (e.key === 'Enter') input.blur(); });
     input.addEventListener('keydown', (e) => { if (e.key === 'Escape') { input.value = currentTitle; input.blur(); } });
@@ -303,10 +637,7 @@ function addUserMessage(text, messageId = null, scroll = true) {
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message user';
     if (messageId) messageDiv.dataset.messageId = messageId;
-    
-    // #20 — use initials instead of emoji
     const initial = getUserInitial();
-
     messageDiv.innerHTML = `
         <div class="message-header">
             <div class="avatar user avatar-initials">${initial}</div>
@@ -318,7 +649,6 @@ function addUserMessage(text, messageId = null, scroll = true) {
             <button class="delete-msg-btn" onclick="deleteMessage('${messageId}', this)" title="Delete message">🗑️</button>
         </div>
     `;
-    
     container.appendChild(messageDiv);
     if (scroll) scrollToBottom();
 }
@@ -328,9 +658,7 @@ function addAssistantMessage(text, messageId = null, isHtml = false) {
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message assistant';
     if (messageId) messageDiv.dataset.messageId = messageId;
-
     const renderedContent = isHtml ? text : renderMarkdown(text);
-    
     messageDiv.innerHTML = `
         <div class="message-header">
             <div class="avatar assistant">✦</div>
@@ -347,7 +675,6 @@ function addAssistantMessage(text, messageId = null, isHtml = false) {
         </div>
         ` : ''}
     `;
-    
     container.appendChild(messageDiv);
     const contentDiv = messageDiv.querySelector('.message-content');
     if (contentDiv) highlightCodeBlocks(contentDiv);
@@ -403,7 +730,6 @@ function addErrorMessage(errorText, retriable = true) {
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message assistant error-message';
     messageDiv.id = 'error-message';
-
     const retryBtns = retriable ? `
         <div class="error-actions">
             <button class="retry-btn-inline" onclick="retryLastMessage()" title="Retry">🔄 Retry</button>
@@ -412,7 +738,6 @@ function addErrorMessage(errorText, retriable = true) {
             <button class="retry-btn-below" onclick="retryLastMessage()">🔄 Try again</button>
         </div>
     ` : '';
-
     messageDiv.innerHTML = `
         <div class="message-header">
             <div class="avatar assistant error-avatar">✦</div>
@@ -424,7 +749,6 @@ function addErrorMessage(errorText, retriable = true) {
             ${retryBtns}
         </div>
     `;
-
     container.appendChild(messageDiv);
     scrollToBottom();
 }
@@ -434,10 +758,7 @@ function retryLastMessage() {
     const errMsg = document.getElementById('error-message');
     if (errMsg) errMsg.remove();
     const input = document.getElementById('messageInput');
-    if (input) {
-        input.value = lastFailedMessage;
-        sendMessage();
-    }
+    if (input) { input.value = lastFailedMessage; sendMessage(); }
 }
 
 // ============================================================================
@@ -450,7 +771,6 @@ function createStreamingMessage() {
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message assistant';
     const contentId = 'stream-' + Date.now();
-
     messageDiv.innerHTML = `
         <div class="message-header">
             <div class="avatar assistant">✦</div>
@@ -460,7 +780,6 @@ function createStreamingMessage() {
             <span class="streaming-cursor"></span>
         </div>
     `;
-
     container.appendChild(messageDiv);
     scrollToBottom();
     return { messageDiv, contentId };
@@ -469,10 +788,8 @@ function createStreamingMessage() {
 function finalizeStreamingMessage(messageDiv, contentId, fullText, messageId) {
     const contentDiv = document.getElementById(contentId);
     if (!contentDiv) return;
-
     contentDiv.innerHTML = renderMarkdown(fullText);
     highlightCodeBlocks(contentDiv);
-
     if (messageId) {
         messageDiv.dataset.messageId = messageId;
         const actionsHtml = `
@@ -486,20 +803,17 @@ function finalizeStreamingMessage(messageDiv, contentId, fullText, messageId) {
         `;
         messageDiv.insertAdjacentHTML('beforeend', actionsHtml);
     }
-
     setTimeout(addRunButtons, 100);
     scrollToBottom();
     updateMemoryIndicator();
 }
 
-// Fallback fake streaming
 function streamAssistantMessage(text, messageId = null) {
     removeTypingIndicator();
     const container = document.getElementById('messagesContainer');
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message assistant';
     if (messageId) messageDiv.dataset.messageId = messageId;
-    
     const contentId = 'content-' + Date.now();
     messageDiv.innerHTML = `
         <div class="message-header">
@@ -517,16 +831,13 @@ function streamAssistantMessage(text, messageId = null) {
         </div>
         ` : ''}
     `;
-    
     container.appendChild(messageDiv);
     const contentDiv = document.getElementById(contentId);
     let index = 0;
     let rawText = '';
-    
     const cursor = document.createElement('span');
     cursor.className = 'streaming-cursor';
     contentDiv.appendChild(cursor);
-    
     function typeNextChar() {
         if (index < text.length) {
             rawText += text[index];
@@ -548,7 +859,6 @@ function streamAssistantMessage(text, messageId = null) {
             updateMemoryIndicator();
         }
     }
-    
     isStreaming = true;
     typeNextChar();
 }
@@ -557,7 +867,6 @@ function streamTextIntoElement(text, element) {
     let index = 0;
     let rawText = '';
     element.style.opacity = '1';
-    
     function typeNextChar() {
         if (index < text.length) {
             rawText += text[index];
@@ -674,21 +983,17 @@ function detectCodeExecution(message) {
     ];
     if (explicitPatterns.some(p => p.test(message))) return true;
     if (/```[\s\S]*```/.test(message)) return true;
-    
     const lines = message.trim().split('\n');
     const isQuestion = /^(what|how|why|when|where|who|can|could|would|should|explain|tell|help|write|create|build|make|show|give|suggest|describe|compare)/i.test(message);
     if (isQuestion) return false;
-    
     const pythonPatterns = [
         /^print\s*\(/, /^import\s+\w/, /^from\s+\w+\s+import/, /^def\s+\w+\s*\(/,
         /^class\s+\w+/, /^for\s+\w+\s+in\s+/, /^while\s+/, /^if\s+.+:/,
         /^\w+\s*=\s*.+/, /^\[.*\]$/, /^\{.*\}$/, /^len\s*\(/, /^sum\s*\(/,
         /^range\s*\(/, /^sorted\s*\(/, /^input\s*\(/, /^open\s*\(/, /^try\s*:/, /^with\s+/,
     ];
-    
     const firstLine = lines[0].trim();
     if (pythonPatterns.some(p => p.test(firstLine))) return true;
-    
     if (lines.length >= 3) {
         let codeLineCount = 0;
         for (const line of lines) {
@@ -740,7 +1045,6 @@ function formatCodeResult(result) {
     const statusIcon = result.success ? '✅' : '❌';
     const statusText = result.success ? 'Success' : 'Error';
     const timeText = `${(result.execution_time * 1000).toFixed(1)}ms`;
-    
     let html = `
         <div class="code-result ${result.success ? 'success' : 'error'}">
             <div class="code-result-header">
@@ -749,37 +1053,16 @@ function formatCodeResult(result) {
             </div>
     `;
     if (result.output) {
-        html += `
-            <div class="code-result-section">
-                <div class="code-result-label">OUTPUT:</div>
-                <pre class="code-result-output">${escapeHtml(result.output)}</pre>
-            </div>
-        `;
+        html += `<div class="code-result-section"><div class="code-result-label">OUTPUT:</div><pre class="code-result-output">${escapeHtml(result.output)}</pre></div>`;
     }
     if (result.error) {
-        html += `
-            <div class="code-result-section">
-                <div class="code-result-label">Error:</div>
-                <pre class="code-result-error">${escapeHtml(result.error)}</pre>
-            </div>
-        `;
+        html += `<div class="code-result-section"><div class="code-result-label">Error:</div><pre class="code-result-error">${escapeHtml(result.error)}</pre></div>`;
     }
     if (result.image) {
-        html += `
-            <div class="code-result-section">
-                <div class="code-result-label">📊 Plot:</div>
-                <img src="data:image/png;base64,${result.image}" 
-                     style="max-width:100%; border-radius:8px; margin-top:8px; display:block;" 
-                     alt="matplotlib plot" />
-            </div>
-        `;
+        html += `<div class="code-result-section"><div class="code-result-label">📊 Plot:</div><img src="data:image/png;base64,${result.image}" style="max-width:100%; border-radius:8px; margin-top:8px; display:block;" alt="matplotlib plot" /></div>`;
     }
     if (!result.output && !result.error && result.success && !result.image) {
-        html += `
-            <div class="code-result-section">
-                <div class="code-result-output empty">Code executed successfully (no output)</div>
-            </div>
-        `;
+        html += `<div class="code-result-section"><div class="code-result-output empty">Code executed successfully (no output)</div></div>`;
     }
     html += '</div>';
     return html;
@@ -788,24 +1071,17 @@ function formatCodeResult(result) {
 function addRunButtons() {
     document.querySelectorAll('.message-content pre').forEach(pre => {
         if (pre.querySelector('.run-code-btn')) return;
-        
         const codeElement = pre.querySelector('code') || pre;
         const code = codeElement.textContent;
-        
         const isPythonLike = 
             code.includes('print(') || code.includes('def ') || code.includes('class ') ||
             code.includes('import ') || code.includes('for ') || code.includes('while ') ||
             code.includes('if ') || code.includes(' = ') || /^\s*\w+\s*=/.test(code);
-        
         if (isPythonLike && code.trim().length > 0) {
             const copyBtn = document.createElement('button');
             copyBtn.className = 'copy-code-btn';
             copyBtn.innerHTML = '📋 Copy';
-            copyBtn.onclick = (e) => {
-                e.stopPropagation();
-                copyToClipboard(codeElement.textContent, copyBtn, '📋 Copy');
-            };
-
+            copyBtn.onclick = (e) => { e.stopPropagation(); copyToClipboard(codeElement.textContent, copyBtn, '📋 Copy'); };
             const runBtn = document.createElement('button');
             runBtn.className = 'run-code-btn';
             runBtn.innerHTML = '▶️ Run';
@@ -822,7 +1098,6 @@ function addRunButtons() {
                 runBtn.disabled = false;
                 runBtn.innerHTML = '▶️ Run';
             };
-            
             pre.style.position = 'relative';
             pre.appendChild(copyBtn);
             pre.appendChild(runBtn);
@@ -1116,7 +1391,7 @@ function toggleTheme() {
 })();
 
 // ============================================================================
-// SEND MESSAGE — Real SSE streaming (#15 + #16)
+// SEND MESSAGE — Real SSE streaming with Gmail detection
 // ============================================================================
 
 async function sendMessage() {
@@ -1124,6 +1399,15 @@ async function sendMessage() {
     const input = document.getElementById('messageInput');
     const message = input.value.trim();
     if (!message && attachedFiles.length === 0) return;
+
+    // Gmail intent detection — #27
+    if (message && detectGmailIntent(message)) {
+        input.value = '';
+        input.style.height = 'auto';
+        addUserMessage(message);
+        await handleGmailMessage(message);
+        return;
+    }
 
     if (message) lastFailedMessage = message;
 
@@ -1158,14 +1442,12 @@ async function sendMessage() {
     const sendButton = document.getElementById('sendButton');
     if (sendButton) sendButton.disabled = true;
     isStreaming = true;
-
     addTypingIndicator('Thinking...');
 
     try {
         const token = getAccessToken();
         const headers = { 'Content-Type': 'application/json' };
         if (token) headers['Authorization'] = `Bearer ${token}`;
-
         const requestBody = {
             message: message || "I uploaded some files. Please analyze them.",
             conversation_id: conversationId
@@ -1173,13 +1455,9 @@ async function sendMessage() {
         if (uploadedFilesList && uploadedFilesList.length > 0) {
             requestBody.file_ids = uploadedFilesList.map(f => f.file_id);
         }
-
         const response = await fetch(`${API_BASE}/api/v1/chat/stream`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(requestBody)
+            method: 'POST', headers, body: JSON.stringify(requestBody)
         });
-
         if (!response.ok) throw new Error(`Server error ${response.status}`);
 
         const reader = response.body.getReader();
@@ -1193,31 +1471,25 @@ async function sendMessage() {
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
             buffer = lines.pop();
-
             for (const line of lines) {
                 if (!line.startsWith('data: ')) continue;
                 const jsonStr = line.slice(6).trim();
                 if (!jsonStr) continue;
-
                 let event;
                 try { event = JSON.parse(jsonStr); } catch { continue; }
-
                 if (event.type === 'conversation_id') {
                     conversationId = event.conversation_id;
-                }
-                else if (event.type === 'status') {
+                } else if (event.type === 'status') {
                     const statusMap = {
                         'Searching web...': '🔍 Searching web...',
                         'Generating response...': '⚡ Generating...',
                         'Reading files...': '📄 Reading files...',
                     };
                     updateLoadingStatus(statusMap[event.message] || event.message);
-                }
-                else if (event.type === 'token') {
+                } else if (event.type === 'token') {
                     if (!streamStarted) {
                         const created = createStreamingMessage();
                         messageDiv = created.messageDiv;
@@ -1236,19 +1508,16 @@ async function sendMessage() {
                         }
                         scrollToBottom();
                     }
-                }
-                else if (event.type === 'done') {
+                } else if (event.type === 'done') {
                     finalizeStreamingMessage(messageDiv, contentId, event.full_response || rawText, event.message_id);
                     conversationId = event.conversation_id || conversationId;
                     lastFailedMessage = null;
                     loadConversations();
-                }
-                else if (event.type === 'error') {
+                } else if (event.type === 'error') {
                     addErrorMessage(event.error || 'Something went wrong.');
                 }
             }
         }
-
     } catch (error) {
         console.error('Stream error:', error);
         removeTypingIndicator();
@@ -1256,10 +1525,7 @@ async function sendMessage() {
             addTypingIndicator('Reconnecting...');
             const response = await authFetch('/api/v1/chat', {
                 method: 'POST',
-                body: JSON.stringify({
-                    message: message || "I uploaded some files.",
-                    conversation_id: conversationId
-                })
+                body: JSON.stringify({ message: message || "I uploaded some files.", conversation_id: conversationId })
             });
             const data = await response.json();
             if (response.ok) {

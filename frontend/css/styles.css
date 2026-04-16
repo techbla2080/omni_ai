@@ -2763,3 +2763,310 @@
         padding-bottom: calc(16px + env(safe-area-inset-bottom));
     }
 }
+
+/* ============================================================================
+   Gmail UI — Tasks #24 #25 #26 #27
+   Paste at the BOTTOM of styles.css
+   ============================================================================ */
+
+/* Gmail Button in input area */
+.gmail-btn {
+    padding: 6px 12px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-family: var(--font-primary);
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.gmail-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--text-tertiary);
+    color: var(--text-primary);
+}
+
+.gmail-btn.gmail-connected {
+    background: rgba(52, 199, 89, 0.1);
+    border-color: rgba(52, 199, 89, 0.3);
+    color: var(--success);
+}
+
+.gmail-btn.gmail-connected:hover {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.3);
+    color: var(--danger);
+}
+
+/* Email List */
+.email-list-header {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-primary);
+}
+
+.email-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* Email Card */
+.email-card {
+    padding: 12px 14px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+}
+
+.email-card:hover {
+    border-color: var(--accent-primary);
+    box-shadow: var(--shadow-sm);
+}
+
+.email-card.unread {
+    border-left: 3px solid var(--accent-primary);
+    background: var(--accent-subtle);
+}
+
+.email-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+    gap: 8px;
+}
+
+.email-from {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+
+.email-date {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.email-subject {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.email-card.unread .email-subject {
+    font-weight: 700;
+}
+
+.email-snippet {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-bottom: 8px;
+}
+
+.email-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.email-action-btn {
+    padding: 3px 10px;
+    background: none;
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-full);
+    font-size: 11.5px;
+    font-family: var(--font-primary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.email-action-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--text-tertiary);
+}
+
+/* Compose Form */
+.compose-form {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.compose-header {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-secondary);
+}
+
+.compose-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.compose-field label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.compose-input {
+    padding: 8px 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 14px;
+    font-family: var(--font-primary);
+    outline: none;
+    transition: all var(--transition-fast);
+}
+
+.compose-input:focus {
+    border-color: var(--border-focus);
+    box-shadow: var(--shadow-glow);
+}
+
+.compose-textarea {
+    padding: 8px 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 14px;
+    font-family: var(--font-primary);
+    outline: none;
+    resize: vertical;
+    min-height: 100px;
+    line-height: 1.5;
+    transition: all var(--transition-fast);
+}
+
+.compose-textarea:focus {
+    border-color: var(--border-focus);
+    box-shadow: var(--shadow-glow);
+}
+
+.compose-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.compose-send-btn {
+    padding: 8px 16px;
+    background: var(--accent-primary);
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-family: var(--font-primary);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.compose-send-btn:hover {
+    background: var(--accent-hover);
+    transform: translateY(-1px);
+}
+
+.compose-send-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.compose-cancel-btn {
+    padding: 8px 16px;
+    background: none;
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-family: var(--font-primary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.compose-cancel-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.compose-ai-btn {
+    padding: 8px 16px;
+    background: var(--accent-subtle);
+    border: 1px solid rgba(124, 108, 240, 0.3);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-family: var(--font-primary);
+    color: var(--accent-text);
+    cursor: pointer;
+    font-weight: 500;
+    transition: all var(--transition-fast);
+}
+
+.compose-ai-btn:hover {
+    background: rgba(124, 108, 240, 0.2);
+}
+
+.compose-success {
+    font-size: 14px;
+    color: var(--success);
+    padding: 12px;
+    background: rgba(52, 199, 89, 0.1);
+    border-radius: var(--radius-sm);
+    text-align: center;
+    font-weight: 500;
+}
+
+@media (max-width: 768px) {
+    .gmail-btn {
+        font-size: 11px;
+        padding: 5px 8px;
+    }
+
+    .compose-actions {
+        flex-direction: column;
+    }
+
+    .compose-send-btn,
+    .compose-cancel-btn,
+    .compose-ai-btn {
+        width: 100%;
+        text-align: center;
+    }
+}
