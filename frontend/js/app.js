@@ -406,6 +406,13 @@ function detectSearchIntent(message) {
     return /search.*email|find.*email|look.*email|email.*from|email.*about/i.test(message);
 }
 
+// #26 — new: detect when user wants to SEE/LIST emails (vs ask about them)
+function detectShowListIntent(message) {
+    return /^(show|list|check|get|display|give me|see).*(email|inbox|mail|message)/i.test(message) ||
+           /(unread|new|recent).*(email|mail|message)/i.test(message) ||
+           /^inbox$/i.test(message);
+}
+
 async function handleGmailMessage(message) {
     if (!gmailConnected) {
         addAssistantMessage(`To use Gmail features, connect your Gmail account first.\n\nClick the **📧 Connect Gmail** button below!`);
@@ -413,8 +420,37 @@ async function handleGmailMessage(message) {
     }
     if (detectSendIntent(message)) { await handleSendEmailIntent(message); return true; }
     if (detectSearchIntent(message)) { await handleSearchEmailIntent(message); return true; }
+    if (detectShowListIntent(message)) { await handleShowEmailsIntent(message); return true; }
     await handleAskEmailIntent(message);
     return true;
+}
+
+// #26 — new: render actual email cards for show/list intents
+async function handleShowEmailsIntent(message) {
+    addTypingIndicator('📧 Loading your emails...');
+    try {
+        const isUnread = /unread|new/i.test(message);
+        const endpoint = isUnread ? '/api/v1/gmail/unread' : '/api/v1/gmail/inbox';
+        const response = await authFetch(`${endpoint}?max_results=10`);
+        removeTypingIndicator();
+        if (response.ok) {
+            const data = await response.json();
+            const emails = data.emails || [];
+            if (emails.length === 0) {
+                addAssistantMessage(isUnread ? 'No unread emails. Inbox zero! 🎉' : 'Your inbox is empty.');
+            } else {
+                const title = isUnread
+                    ? `Unread Emails${data.unread_count ? ` (${data.unread_count} total unread)` : ''}`
+                    : 'Your Inbox';
+                displayEmailCards(emails, title);
+            }
+        } else {
+            addAssistantMessage('❌ Could not load emails. Please try again.');
+        }
+    } catch (e) {
+        removeTypingIndicator();
+        addAssistantMessage('❌ Gmail error: ' + e.message);
+    }
 }
 
 async function handleAskEmailIntent(message) {
@@ -1505,7 +1541,7 @@ function toggleTheme() {
 })();
 
 // ============================================================================
-// SEND MESSAGE — Real SSE streaming with Gmail detection + #25 Mode support
+// SEND MESSAGE — Real SSE streaming with Gmail detection + #25 Mode support + #26 fix
 // ============================================================================
 
 async function sendMessage() {
@@ -1514,9 +1550,9 @@ async function sendMessage() {
     const message = input.value.trim();
     if (!message && attachedFiles.length === 0) return;
 
-    // Gmail intent detection — #27
-    // Only auto-trigger Gmail UI if NOT already in Email mode (in Email mode the AI itself handles it)
-    if (message && detectGmailIntent(message) && currentMode !== 'email') {
+    // Gmail intent detection — #24 #25 #26 #27
+    // Works in both Normal mode and Email mode — Email mode just means AI is also focused
+    if (message && detectGmailIntent(message)) {
         input.value = '';
         input.style.height = 'auto';
         addUserMessage(message);
