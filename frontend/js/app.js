@@ -12,6 +12,19 @@ var attachedFiles = [];
 var lastFailedMessage = null;
 
 // ============================================================================
+// #25 — AI MODE SYSTEM STATE
+// ============================================================================
+
+var currentMode = 'normal';
+
+const MODE_PLACEHOLDERS = {
+    'normal': 'Message OmniAI...',
+    'email': '📧 Email mode — ask about your inbox',
+    'calendar': '📅 Calendar mode — ask about your schedule',
+    'code': '🧑‍💻 Code mode — ask for code or debugging help'
+};
+
+// ============================================================================
 // MARKDOWN + SYNTAX HIGHLIGHTING SETUP
 // ============================================================================
 
@@ -62,6 +75,9 @@ document.addEventListener('DOMContentLoaded', () => {
         overlay.onclick = toggleSidebar;
         document.body.appendChild(overlay);
     }
+
+    // Initialize mode pills UI to normal by default
+    updateModePillUI('normal');
 
     // Gmail init
     setTimeout(() => {
@@ -139,6 +155,95 @@ function getUserInitial() {
     } catch (e) {
         return '?';
     }
+}
+
+// ============================================================================
+// #25 — AI MODE SYSTEM
+// ============================================================================
+
+function updateModePillUI(mode) {
+    const validModes = ['normal', 'email', 'calendar', 'code'];
+    if (!validModes.includes(mode)) mode = 'normal';
+
+    currentMode = mode;
+
+    // Update active pill
+    document.querySelectorAll('.mode-pill').forEach(pill => {
+        if (pill.dataset.mode === mode) {
+            pill.classList.add('active');
+        } else {
+            pill.classList.remove('active');
+        }
+    });
+
+    // Update input placeholder
+    const input = document.getElementById('messageInput');
+    if (input && MODE_PLACEHOLDERS[mode]) {
+        input.placeholder = MODE_PLACEHOLDERS[mode];
+    }
+
+    // Update input container glow class
+    const inputContainer = document.querySelector('.input-container');
+    if (inputContainer) {
+        inputContainer.classList.remove(
+            'mode-normal-active',
+            'mode-email-active',
+            'mode-calendar-active',
+            'mode-code-active'
+        );
+        if (mode !== 'normal') {
+            inputContainer.classList.add(`mode-${mode}-active`);
+        }
+    }
+}
+
+async function switchMode(mode) {
+    const validModes = ['normal', 'email', 'calendar', 'code'];
+    if (!validModes.includes(mode)) return;
+    if (mode === currentMode) return;
+
+    // Update UI immediately for responsiveness
+    updateModePillUI(mode);
+
+    // If there's an existing conversation, persist the mode change to backend
+    if (conversationId) {
+        try {
+            const response = await authFetch(
+                `/api/v1/chat/conversations/${conversationId}/mode`,
+                {
+                    method: 'PATCH',
+                    body: JSON.stringify({ mode: mode })
+                }
+            );
+            if (!response.ok) {
+                console.error('Failed to update mode on server');
+            }
+        } catch (e) {
+            console.error('Mode switch error:', e);
+        }
+    }
+
+    // Add a subtle system message in chat if mode changed (only if conversation exists)
+    if (conversationId) {
+        addModeChangeNotice(mode);
+    }
+}
+
+function addModeChangeNotice(mode) {
+    const modeLabels = {
+        'normal': '💬 Normal mode',
+        'email': '📧 Email mode',
+        'calendar': '📅 Calendar mode',
+        'code': '🧑‍💻 Code mode'
+    };
+    const container = document.getElementById('messagesContainer');
+    if (!container) return;
+
+    const notice = document.createElement('div');
+    notice.className = 'mode-change-notice';
+    notice.innerHTML = `<span>Switched to ${modeLabels[mode]}</span>`;
+    container.appendChild(notice);
+    scrollToBottom();
 }
 
 // ============================================================================
@@ -552,6 +657,11 @@ async function loadConversation(id) {
         if (!response.ok) return;
         const data = await response.json();
         conversationId = id;
+
+        // #25: Load conversation mode and update UI
+        const convMode = data.mode || 'normal';
+        updateModePillUI(convMode);
+
         const container = document.getElementById('messagesContainer');
         container.innerHTML = '';
         hideWelcome();
@@ -581,6 +691,10 @@ function startNewConversation() {
     loadConversations();
     closeSidebarOnMobile();
     updateMemoryIndicator(0);
+
+    // #25: Reset mode to normal on new chat
+    updateModePillUI('normal');
+
     const input = document.getElementById('messageInput');
     if (input) input.focus();
 }
@@ -1223,7 +1337,7 @@ async function saveEdit(messageId, buttonElement) {
     try {
         const response = await authFetch('/api/v1/chat', {
             method: 'POST',
-            body: JSON.stringify({ message: newContent, conversation_id: conversationId })
+            body: JSON.stringify({ message: newContent, conversation_id: conversationId, mode: currentMode })
         });
         const data = await response.json();
         if (response.ok) streamAssistantMessage(data.response, data.message_id);
@@ -1391,7 +1505,7 @@ function toggleTheme() {
 })();
 
 // ============================================================================
-// SEND MESSAGE — Real SSE streaming with Gmail detection
+// SEND MESSAGE — Real SSE streaming with Gmail detection + #25 Mode support
 // ============================================================================
 
 async function sendMessage() {
@@ -1401,7 +1515,8 @@ async function sendMessage() {
     if (!message && attachedFiles.length === 0) return;
 
     // Gmail intent detection — #27
-    if (message && detectGmailIntent(message)) {
+    // Only auto-trigger Gmail UI if NOT already in Email mode (in Email mode the AI itself handles it)
+    if (message && detectGmailIntent(message) && currentMode !== 'email') {
         input.value = '';
         input.style.height = 'auto';
         addUserMessage(message);
@@ -1450,7 +1565,8 @@ async function sendMessage() {
         if (token) headers['Authorization'] = `Bearer ${token}`;
         const requestBody = {
             message: message || "I uploaded some files. Please analyze them.",
-            conversation_id: conversationId
+            conversation_id: conversationId,
+            mode: currentMode  // #25: Send current mode with every message
         };
         if (uploadedFilesList && uploadedFilesList.length > 0) {
             requestBody.file_ids = uploadedFilesList.map(f => f.file_id);
@@ -1482,6 +1598,10 @@ async function sendMessage() {
                 try { event = JSON.parse(jsonStr); } catch { continue; }
                 if (event.type === 'conversation_id') {
                     conversationId = event.conversation_id;
+                    // #25: If backend returned a mode, sync the UI (in case it differs)
+                    if (event.mode && event.mode !== currentMode) {
+                        updateModePillUI(event.mode);
+                    }
                 } else if (event.type === 'status') {
                     const statusMap = {
                         'Searching web...': '🔍 Searching web...',
@@ -1511,6 +1631,10 @@ async function sendMessage() {
                 } else if (event.type === 'done') {
                     finalizeStreamingMessage(messageDiv, contentId, event.full_response || rawText, event.message_id);
                     conversationId = event.conversation_id || conversationId;
+                    // #25: Sync mode from backend on done event
+                    if (event.mode && event.mode !== currentMode) {
+                        updateModePillUI(event.mode);
+                    }
                     lastFailedMessage = null;
                     loadConversations();
                 } else if (event.type === 'error') {
@@ -1525,11 +1649,16 @@ async function sendMessage() {
             addTypingIndicator('Reconnecting...');
             const response = await authFetch('/api/v1/chat', {
                 method: 'POST',
-                body: JSON.stringify({ message: message || "I uploaded some files.", conversation_id: conversationId })
+                body: JSON.stringify({
+                    message: message || "I uploaded some files.",
+                    conversation_id: conversationId,
+                    mode: currentMode  // #25
+                })
             });
             const data = await response.json();
             if (response.ok) {
                 conversationId = data.conversation_id;
+                if (data.mode) updateModePillUI(data.mode);
                 streamAssistantMessage(data.response, data.message_id);
                 lastFailedMessage = null;
                 loadConversations();

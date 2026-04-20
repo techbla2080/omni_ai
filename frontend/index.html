@@ -148,6 +148,26 @@
 
             <div class="input-area">
                 <div class="input-wrapper">
+                    <!-- #25: AI Mode Pills -->
+                    <div class="mode-pills" id="modePills">
+                        <button class="mode-pill active" data-mode="normal" onclick="switchMode('normal')" title="General AI assistant">
+                            <span class="mode-pill-icon">💬</span>
+                            <span class="mode-pill-label">Normal</span>
+                        </button>
+                        <button class="mode-pill" data-mode="email" onclick="switchMode('email')" title="Focused on Gmail and email management">
+                            <span class="mode-pill-icon">📧</span>
+                            <span class="mode-pill-label">Email</span>
+                        </button>
+                        <button class="mode-pill" data-mode="calendar" onclick="switchMode('calendar')" title="Focused on scheduling and calendar">
+                            <span class="mode-pill-icon">📅</span>
+                            <span class="mode-pill-label">Calendar</span>
+                        </button>
+                        <button class="mode-pill" data-mode="code" onclick="switchMode('code')" title="Focused on programming and development">
+                            <span class="mode-pill-icon">🧑‍💻</span>
+                            <span class="mode-pill-label">Code</span>
+                        </button>
+                    </div>
+
                     <input type="file" id="fileInput" style="display: none;" multiple
                         accept=".pdf,.doc,.docx,.txt,.md,.png,.jpg,.jpeg,.gif,.webp,.xlsx,.xls,.csv,.py,.js,.json,.html,.css"
                         onchange="handleFileSelect(event)">
@@ -181,7 +201,7 @@
     <script src="js/theme.js"></script>
     <script src="js/sidebar.js"></script>
     <script src="js/files.js"></script>
-    <script src="/js/app.js?v=8"></script>
+    <script src="/js/app.js?v=9"></script>
 
     <script>
         // Initialize syntax highlighting

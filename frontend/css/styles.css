@@ -3070,3 +3070,136 @@
         text-align: center;
     }
 }
+
+/* ============================================================================
+   Task #25 — AI Mode System Pills
+   ============================================================================ */
+
+   .mode-pills {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 10px;
+    padding: 4px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-full);
+    width: fit-content;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.mode-pills::-webkit-scrollbar {
+    display: none;
+}
+
+.mode-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-full);
+    color: var(--text-tertiary);
+    font-size: 12.5px;
+    font-family: var(--font-primary);
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.mode-pill:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.mode-pill.active {
+    background: var(--accent-primary);
+    color: white;
+    box-shadow: 0 2px 6px rgba(124, 108, 240, 0.3);
+    font-weight: 600;
+}
+
+.mode-pill.active:hover {
+    background: var(--accent-hover);
+}
+
+.mode-pill-icon {
+    font-size: 14px;
+    line-height: 1;
+}
+
+.mode-pill-label {
+    font-size: 12.5px;
+    line-height: 1;
+}
+
+/* When a non-normal mode is active, show subtle glow on input */
+.input-container.mode-email-active,
+.input-container.mode-calendar-active,
+.input-container.mode-code-active {
+    border-color: rgba(124, 108, 240, 0.4);
+    box-shadow: 0 0 0 2px rgba(124, 108, 240, 0.08);
+}
+
+/* Mobile — keep pills in a scrollable row */
+@media (max-width: 768px) {
+    .mode-pills {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .mode-pill {
+        padding: 5px 10px;
+        font-size: 11.5px;
+    }
+
+    .mode-pill-icon {
+        font-size: 13px;
+    }
+
+    .mode-pill-label {
+        font-size: 11.5px;
+    }
+}
+
+@media (max-width: 480px) {
+    .mode-pill-label {
+        display: none;
+    }
+
+    .mode-pill {
+        padding: 6px 10px;
+    }
+
+    .mode-pill-icon {
+        font-size: 15px;
+    }
+}
+
+/* Mode change notice (subtle separator when mode switches) */
+.mode-change-notice {
+    text-align: center;
+    padding: 10px 0;
+    font-size: 12px;
+    color: var(--text-tertiary);
+    font-style: italic;
+    opacity: 0.8;
+    animation: modeNoticeFadeIn 0.3s ease;
+}
+
+.mode-change-notice span {
+    padding: 4px 12px;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-full);
+    border: 1px solid var(--border-secondary);
+}
+
+@keyframes modeNoticeFadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 0.8; transform: translateY(0); }
+}
