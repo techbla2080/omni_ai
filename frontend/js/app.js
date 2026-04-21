@@ -280,7 +280,7 @@ function updateMemoryIndicator(count = null) {
 }
 
 // ============================================================================
-// GMAIL INTEGRATION — #24 #25 #26 #27
+// GMAIL INTEGRATION — #24 #25 #26 #27 #28
 // ============================================================================
 
 var gmailConnected = false;
@@ -394,6 +394,15 @@ function detectGmailIntent(message) {
         /summarize.*(my )?(inbox|email)/i,
         /urgent.*(email|mail)/i,
         /inbox/i,
+        // #28 — broader reasoning triggers (work without "email" word)
+        /action item/i,
+        /pending.*(action|task|item|email|reply)/i,
+        /what.*urgent/i,
+        /what.*pending/i,
+        /who.*(haven'?t|have not|not).*(replied|responded)/i,
+        /what.*replied/i,
+        /follow.?up/i,
+        /summarize.*(inbox|messages|this week|today)/i,
     ];
     return emailPatterns.some(p => p.test(message));
 }
@@ -406,7 +415,7 @@ function detectSearchIntent(message) {
     return /search.*email|find.*email|look.*email|email.*from|email.*about/i.test(message);
 }
 
-// #26 — new: detect when user wants to SEE/LIST emails (vs ask about them)
+// #26 — detect when user wants to SEE/LIST emails (vs ask about them)
 function detectShowListIntent(message) {
     return /^(show|list|check|get|display|give me|see).*(email|inbox|mail|message)/i.test(message) ||
            /(unread|new|recent).*(email|mail|message)/i.test(message) ||
@@ -425,7 +434,7 @@ async function handleGmailMessage(message) {
     return true;
 }
 
-// #26 — new: render actual email cards for show/list intents
+// #26 — render actual email cards for show/list intents
 async function handleShowEmailsIntent(message) {
     addTypingIndicator('📧 Loading your emails...');
     try {
@@ -458,7 +467,7 @@ async function handleAskEmailIntent(message) {
     try {
         const response = await authFetch('/api/v1/gmail/ask', {
             method: 'POST',
-            body: JSON.stringify({ query: message, max_results: 5 })
+            body: JSON.stringify({ query: message, max_results: 20 })
         });
         removeTypingIndicator();
         if (response.ok) {
@@ -1541,7 +1550,7 @@ function toggleTheme() {
 })();
 
 // ============================================================================
-// SEND MESSAGE — Real SSE streaming with Gmail detection + #25 Mode support + #26 fix
+// SEND MESSAGE — Real SSE streaming with Gmail detection + #25 #26 #27 #28
 // ============================================================================
 
 async function sendMessage() {
@@ -1550,9 +1559,11 @@ async function sendMessage() {
     const message = input.value.trim();
     if (!message && attachedFiles.length === 0) return;
 
-    // Gmail intent detection — #24 #25 #26 #27
-    // Works in both Normal mode and Email mode — Email mode just means AI is also focused
-    if (message && detectGmailIntent(message)) {
+    // Gmail routing — #24 #25 #26 #27 #28
+    // In Email mode: ALL messages go through Gmail pipeline (force routing)
+    // In other modes: only route if intent regex matches
+    const shouldRouteToGmail = (currentMode === 'email') || detectGmailIntent(message);
+    if (message && shouldRouteToGmail) {
         input.value = '';
         input.style.height = 'auto';
         addUserMessage(message);
@@ -1602,7 +1613,7 @@ async function sendMessage() {
         const requestBody = {
             message: message || "I uploaded some files. Please analyze them.",
             conversation_id: conversationId,
-            mode: currentMode  // #25: Send current mode with every message
+            mode: currentMode
         };
         if (uploadedFilesList && uploadedFilesList.length > 0) {
             requestBody.file_ids = uploadedFilesList.map(f => f.file_id);
@@ -1634,7 +1645,6 @@ async function sendMessage() {
                 try { event = JSON.parse(jsonStr); } catch { continue; }
                 if (event.type === 'conversation_id') {
                     conversationId = event.conversation_id;
-                    // #25: If backend returned a mode, sync the UI (in case it differs)
                     if (event.mode && event.mode !== currentMode) {
                         updateModePillUI(event.mode);
                     }
@@ -1667,7 +1677,6 @@ async function sendMessage() {
                 } else if (event.type === 'done') {
                     finalizeStreamingMessage(messageDiv, contentId, event.full_response || rawText, event.message_id);
                     conversationId = event.conversation_id || conversationId;
-                    // #25: Sync mode from backend on done event
                     if (event.mode && event.mode !== currentMode) {
                         updateModePillUI(event.mode);
                     }
@@ -1688,7 +1697,7 @@ async function sendMessage() {
                 body: JSON.stringify({
                     message: message || "I uploaded some files.",
                     conversation_id: conversationId,
-                    mode: currentMode  // #25
+                    mode: currentMode
                 })
             });
             const data = await response.json();
