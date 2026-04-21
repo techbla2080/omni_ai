@@ -84,6 +84,12 @@ document.addEventListener('DOMContentLoaded', () => {
         injectGmailButton();
         initGmail();
     }, 1500);
+
+    // Calendar init — #29
+    setTimeout(() => {
+        injectCalendarButton();
+        initCalendar();
+    }, 1600);
 });
 
 // ============================================================================
@@ -277,6 +283,104 @@ function updateMemoryIndicator(count = null) {
         <span class="memory-dot"></span>
         <span class="memory-text">🧠 Remembering ${messages} messages</span>
     `;
+}
+
+// ============================================================================
+// CALENDAR INTEGRATION — #29
+// ============================================================================
+
+var calendarConnected = false;
+var calendarEmail = '';
+
+async function initCalendar() {
+    try {
+        const response = await authFetch('/api/v1/calendar/status');
+        if (response.ok) {
+            const data = await response.json();
+            calendarConnected = data.connected;
+            calendarEmail = data.email || '';
+            updateCalendarButton();
+        }
+    } catch (e) {
+        console.log('Calendar status check failed:', e);
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('calendar_connected') === 'true') {
+        const email = params.get('calendar_email') || '';
+        calendarConnected = true;
+        calendarEmail = email;
+        updateCalendarButton();
+        addAssistantMessage(`✅ Google Calendar connected! (${email})\n\nYou can now:\n- "What's on my calendar today?"\n- "Book a meeting tomorrow at 3pm"\n- "Find me a free slot this week"\n- "What's my schedule like?"`);
+        window.history.replaceState({}, '', '/');
+    }
+    if (params.get('calendar_error')) {
+        addAssistantMessage(`❌ Calendar connection failed: ${params.get('calendar_error')}. Please try again.`);
+        window.history.replaceState({}, '', '/');
+    }
+}
+
+function updateCalendarButton() {
+    let btn = document.getElementById('calendarBtn');
+    if (!btn) return;
+    if (calendarConnected) {
+        btn.innerHTML = `📅 ${calendarEmail || 'Calendar'}`;
+        btn.title = 'Calendar connected — click to disconnect';
+        btn.classList.add('calendar-connected');
+    } else {
+        btn.innerHTML = `📅 Connect Calendar`;
+        btn.title = 'Connect your Google Calendar';
+        btn.classList.remove('calendar-connected');
+    }
+}
+
+function injectCalendarButton() {
+    const inputContainer = document.querySelector('.input-container');
+    if (!inputContainer || document.getElementById('calendarBtn')) return;
+    const btn = document.createElement('button');
+    btn.id = 'calendarBtn';
+    btn.className = 'calendar-btn';
+    btn.innerHTML = '📅 Connect Calendar';
+    btn.title = 'Connect Google Calendar';
+    btn.onclick = handleCalendarButtonClick;
+    // Insert before send button (or at the end if send button not found)
+    const sendBtn = document.getElementById('sendButton');
+    if (sendBtn) inputContainer.insertBefore(btn, sendBtn);
+    else inputContainer.appendChild(btn);
+}
+
+async function handleCalendarButtonClick() {
+    if (calendarConnected) {
+        if (confirm(`Disconnect Calendar (${calendarEmail})?`)) await disconnectCalendar();
+    } else {
+        await connectCalendar();
+    }
+}
+
+async function connectCalendar() {
+    try {
+        const response = await authFetch('/api/v1/calendar/connect');
+        if (response.ok) {
+            const data = await response.json();
+            window.location.href = data.auth_url;
+        } else {
+            addAssistantMessage('❌ Could not start Calendar connection. Please try again.');
+        }
+    } catch (e) {
+        addAssistantMessage('❌ Calendar connection error: ' + e.message);
+    }
+}
+
+async function disconnectCalendar() {
+    try {
+        await authFetch('/api/v1/calendar/disconnect', { method: 'DELETE' });
+        calendarConnected = false;
+        calendarEmail = '';
+        updateCalendarButton();
+        addAssistantMessage('Calendar disconnected.');
+    } catch (e) {
+        addAssistantMessage('❌ Could not disconnect Calendar.');
+    }
 }
 
 // ============================================================================
