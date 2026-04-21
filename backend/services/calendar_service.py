@@ -31,6 +31,11 @@ REDIRECT_URI = os.getenv(
 
 def get_oauth_flow() -> Flow:
     """Create OAuth2 flow for Calendar"""
+    # Suppress strict scope validation — Google may return extra granted scopes
+    # (e.g., Gmail) when include_granted_scopes=true is used
+    import os as _os
+    _os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
+
     client_config = {
         "web": {
             "client_id": CLIENT_ID,
