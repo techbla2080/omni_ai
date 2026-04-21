@@ -5,6 +5,7 @@ Handles Gmail OAuth and email operations
 
 import json
 import logging
+import re
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from fastapi.responses import RedirectResponse
@@ -314,8 +315,154 @@ async def send_gmail(
 
 
 # ============================================================
-# AI-Powered Email Endpoint
+# #28 — AI-Powered Email Reasoning (upgraded)
 # ============================================================
+
+def infer_email_query(user_q: str) -> dict:
+    """
+    Parse the user's natural language question into a Gmail search query + intent label.
+    Returns: {"gmail_query": str, "intent": str, "max_results": int}
+    """
+    q = user_q.lower()
+    gmail_query = "in:inbox"
+    intent = "general"
+    max_results = 15
+
+    # --- SENT folder intents (replies tracking) ---
+    if any(k in q for k in ["haven't replied", "havent replied", "not replied", "unreplied", "need to reply"]):
+        # Fetch inbox — we'll reason about which ones user hasn't replied to
+        gmail_query = "in:inbox newer_than:14d"
+        intent = "unreplied"
+        max_results = 20
+
+    # --- URGENT / IMPORTANT ---
+    elif any(k in q for k in ["urgent", "important", "priority", "critical"]):
+        gmail_query = "(is:unread OR is:important) in:inbox newer_than:7d"
+        intent = "urgent"
+        max_results = 15
+
+    # --- ACTION ITEMS / PENDING ---
+    elif any(k in q for k in ["action item", "pending", "todo", "to do", "follow up", "follow-up"]):
+        gmail_query = "in:inbox newer_than:14d"
+        intent = "action_items"
+        max_results = 20
+
+    # --- SUMMARIZE ---
+    elif any(k in q for k in ["summarize", "summary", "recap", "overview", "digest"]):
+        if "today" in q:
+            gmail_query = "in:inbox newer_than:1d"
+        elif "week" in q:
+            gmail_query = "in:inbox newer_than:7d"
+        elif "month" in q:
+            gmail_query = "in:inbox newer_than:30d"
+        else:
+            gmail_query = "in:inbox newer_than:7d"
+        intent = "summarize"
+        max_results = 20
+
+    # --- DATE RANGE ---
+    elif "today" in q:
+        gmail_query = "in:inbox newer_than:1d"
+        intent = "date_range"
+    elif "yesterday" in q:
+        gmail_query = "in:inbox newer_than:2d older_than:1d"
+        intent = "date_range"
+    elif "this week" in q or "week" in q:
+        gmail_query = "in:inbox newer_than:7d"
+        intent = "date_range"
+    elif "this month" in q or "month" in q:
+        gmail_query = "in:inbox newer_than:30d"
+        intent = "date_range"
+
+    # --- UNREAD ---
+    elif "unread" in q:
+        gmail_query = "is:unread in:inbox"
+        intent = "unread"
+
+    # --- SENT ---
+    elif "sent" in q and "resent" not in q:
+        gmail_query = "in:sent newer_than:7d"
+        intent = "sent"
+
+    # --- SENDER FILTER: "from <name>" ---
+    # Try to detect "from X" pattern and add to the query
+    sender_match = re.search(r"\bfrom\s+([a-z0-9._@\-]+)", q)
+    if sender_match:
+        sender = sender_match.group(1).strip().rstrip(".,!?")
+        if sender and sender not in {"my", "me", "the", "an", "a"}:
+            gmail_query = f"{gmail_query} from:{sender}"
+            if intent == "general":
+                intent = "sender_filter"
+
+    # --- TOPIC FILTER: "about X" ---
+    about_match = re.search(r"\babout\s+([a-z0-9 \-]+?)(?:\s+(?:today|yesterday|this|last|from|$)|$)", q)
+    if about_match:
+        topic = about_match.group(1).strip()
+        if topic and len(topic) > 2:
+            gmail_query = f'{gmail_query} ({topic})'
+            if intent == "general":
+                intent = "topic_filter"
+
+    return {
+        "gmail_query": gmail_query,
+        "intent": intent,
+        "max_results": max_results
+    }
+
+
+def build_ask_system_prompt(intent: str) -> str:
+    """Build a specialized system prompt based on the detected intent."""
+    base = """You are OmniAI, an intelligent email assistant with access to the user's Gmail inbox.
+
+You will be given a list of the user's emails (sender, subject, date, snippet, body).
+Your job is to answer the user's question by reasoning across these emails.
+
+GUIDELINES:
+- Be concrete: mention senders by name, reference subject lines, cite dates.
+- Be concise: use short bullet points or numbered lists. Avoid fluff.
+- Be honest: if the information isn't in the emails, say so.
+- Respect privacy: don't fabricate details not present in the emails.
+- Use markdown formatting (bold for names, bullets for lists) to make answers scannable."""
+
+    if intent == "summarize":
+        return base + """
+
+TASK: Summarize the inbox.
+- Start with a one-line overview (total emails, key themes).
+- Group emails into categories (urgent, FYI, newsletters, personal, promotional).
+- Call out the top 3-5 most important items with sender name and what they want.
+- End with any clear action items you notice."""
+
+    if intent == "urgent":
+        return base + """
+
+TASK: Identify what's urgent.
+- List items that genuinely need the user's attention soon.
+- For each, say WHO it's from, WHAT they need, and WHY it's urgent (deadline, follow-up, escalation).
+- If nothing is truly urgent, say so plainly — don't invent urgency."""
+
+    if intent == "action_items":
+        return base + """
+
+TASK: Extract pending action items.
+- Focus on emails where someone is asking the user to DO something.
+- Format as a numbered list: "[Sender]: [what they need] [deadline if any]".
+- Skip newsletters, promotional emails, FYI-only messages.
+- If there are no clear action items, say "Nothing actionable in this batch."."""
+
+    if intent == "unreplied":
+        return base + """
+
+TASK: Identify emails the user likely hasn't replied to yet.
+- Look for emails where the sender is asking a question or expecting a response.
+- Pay attention to who's writing and when.
+- Format as: "[Sender] ([date]): [what they're asking]".
+- Note: you don't have access to the Sent folder, so make your best guess based on inbox signals (questions, requests, follow-ups)."""
+
+    return base + """
+
+TASK: Answer the user's question directly based on the emails."""
+
 
 @router.post("/ask")
 async def ask_about_email(
@@ -329,55 +476,66 @@ async def ask_about_email(
     tokens = await get_gmail_tokens(user_id, db)
 
     try:
-        query = 'in:inbox'
-        user_q = body.query.lower()
+        # #28 — Intelligent query routing
+        routing = infer_email_query(body.query)
+        gmail_query = routing["gmail_query"]
+        intent = routing["intent"]
+        max_results = routing["max_results"]
 
-        if 'unread' in user_q:
-            query = 'is:unread in:inbox'
-        elif 'today' in user_q:
-            query = 'in:inbox newer_than:1d'
-        elif 'week' in user_q:
-            query = 'in:inbox newer_than:7d'
-        elif 'sent' in user_q:
-            query = 'in:sent'
+        logger.info(f"[ask] user_q='{body.query}' intent={intent} gmail_query='{gmail_query}'")
 
-        emails = fetch_emails(tokens, query=query, max_results=5)
+        emails = fetch_emails(tokens, query=gmail_query, max_results=max_results)
 
         if not emails:
-            return {"response": "No emails found matching your query.", "emails_analyzed": 0}
+            return {
+                "response": "No emails found matching your question. Try broadening your request — e.g. 'summarize my inbox' or 'show unread emails'.",
+                "emails_analyzed": 0,
+                "emails": [],
+                "intent": intent
+            }
 
+        # Build rich email context (more emails, longer bodies)
         email_context = ""
         for i, email in enumerate(emails, 1):
+            body_preview = (email.get('body') or email.get('snippet') or '')[:1500]
             email_context += f"""
 Email {i}:
-From: {email['from']}
-Subject: {email['subject']}
-Date: {email['date']}
-Preview: {email['snippet']}
-Body: {email['body'][:500]}
+From: {email.get('from', '')}
+Subject: {email.get('subject', '')}
+Date: {email.get('date', '')}
+Unread: {email.get('is_unread', False)}
+Body:
+{body_preview}
 ---
 """
 
-        system_prompt = """You are OmniAI, an AI assistant with access to the user's Gmail.
-Answer the user's question based on the email data provided. Be concise and helpful."""
+        system_prompt = build_ask_system_prompt(intent)
 
-        prompt = f"""Here are the user's recent emails:
+        prompt = f"""Here are the user's emails ({len(emails)} total):
 
 {email_context}
 
-User's question: {body.query}
+User's question: "{body.query}"
 
-Please answer based on the emails above."""
+Please answer based on the emails above. Follow the task guidelines in your instructions."""
 
         response = await llm_service.generate(
             prompt=prompt,
             system_prompt=system_prompt,
             temperature=0.3,
-            max_tokens=1024
+            max_tokens=1500
         )
 
-        return {"response": response, "emails_analyzed": len(emails)}
+        return {
+            "response": response,
+            "emails_analyzed": len(emails),
+            "emails": emails,
+            "intent": intent,
+            "gmail_query": gmail_query
+        }
 
     except Exception as e:
         logger.error(f"Gmail ask error: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
