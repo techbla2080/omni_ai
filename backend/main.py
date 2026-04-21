@@ -1,6 +1,6 @@
 """
 OmniAI Backend - v0.7.0
-Universal AI Interface with Chat, Files, Export, Auth, Gmail
+Universal AI Interface with Chat, Files, Export, Auth, Gmail, Calendar
 """
 
 from fastapi import FastAPI, HTTPException, Request
@@ -46,6 +46,15 @@ except ImportError as e:
     HAS_GMAIL_ROUTER = False
     logging.getLogger(__name__).warning(f"⚠️ Gmail router not loaded: {e}")
 
+# Calendar router — #29
+try:
+    from api.calendar import router as calendar_router
+    HAS_CALENDAR_ROUTER = True
+    logging.getLogger(__name__).info("✅ Calendar router loaded")
+except ImportError as e:
+    HAS_CALENDAR_ROUTER = False
+    logging.getLogger(__name__).warning(f"⚠️ Calendar router not loaded: {e}")
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -53,7 +62,7 @@ logger = logging.getLogger(__name__)
 # Create the app
 app = FastAPI(
     title="OmniAI API",
-    description="The Universal AI Interface - Now with Gmail!",
+    description="The Universal AI Interface - Now with Gmail + Calendar!",
     version="0.7.0",
     debug=settings.DEBUG
 )
@@ -89,6 +98,9 @@ app.include_router(auth_router)
 
 if HAS_GMAIL_ROUTER:
     app.include_router(gmail_router)
+
+if HAS_CALENDAR_ROUTER:
+    app.include_router(calendar_router)
 
 # ========================================
 # STATIC FILES (Frontend)
@@ -151,6 +163,7 @@ async def root():
             "Mobile Responsive",
             "User Authentication",
             "Gmail Integration",
+            "Google Calendar Integration",
         ],
         "timestamp": datetime.utcnow().isoformat()
     }
