@@ -130,3 +130,87 @@ def get_user_email(token_data: Dict[str, Any]) -> str:
     except Exception as e:
         logger.error(f"Error fetching user email: {e}")
     return ""
+
+def fetch_events(token_data: Dict[str, Any], 
+                  time_min: str = None, 
+                  time_max: str = None, 
+                  max_results: int = 20) -> list:
+    """
+    Fetch calendar events from the user's primary calendar.
+    
+    Args:
+        token_data: Saved OAuth tokens for the user
+        time_min: ISO 8601 start time (e.g., '2026-04-21T00:00:00Z'). Defaults to now.
+        time_max: ISO 8601 end time. Defaults to 7 days from now.
+        max_results: Maximum number of events to return (1-50)
+    
+    Returns:
+        List of event dicts with id, summary, start, end, location, attendees, etc.
+    """
+    from datetime import datetime, timedelta, timezone
+    
+    service = get_calendar_service(token_data)
+    
+    # Default time range: now → 7 days from now
+    if not time_min:
+        time_min = datetime.now(timezone.utc).isoformat()
+    if not time_max:
+        time_max = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+    
+    try:
+        events_result = service.events().list(
+            calendarId='primary',
+            timeMin=time_min,
+            timeMax=time_max,
+            maxResults=max_results,
+            singleEvents=True,
+            orderBy='startTime'
+        ).execute()
+        
+        events = events_result.get('items', [])
+        
+        # Normalize event data for frontend consumption
+        normalized = []
+        for event in events:
+            start = event.get('start', {})
+            end = event.get('end', {})
+            
+            # Determine if it's an all-day event
+            is_all_day = 'date' in start
+            start_time = start.get('dateTime') or start.get('date', '')
+            end_time = end.get('dateTime') or end.get('date', '')
+            
+            attendees_list = []
+            for attendee in event.get('attendees', []):
+                attendees_list.append({
+                    'email': attendee.get('email', ''),
+                    'name': attendee.get('displayName', ''),
+                    'response': attendee.get('responseStatus', 'needsAction'),
+                    'is_organizer': attendee.get('organizer', False)
+                })
+            
+            # Extract meet link if present
+            meet_link = None
+            conference = event.get('conferenceData', {})
+            if conference:
+                for entry in conference.get('entryPoints', []):
+                    if entry.get('entryPointType') == 'video':
+                        meet_link = entry.get('uri')
+                        break
+            
+            normalized.append({
+                'id': event.get('id', ''),
+                'summary': event.get('summary', '(no title)'),
+                'description': event.get('description', ''),
+                'location': event.get('location', ''),
+                'start': start_time,
+                'end': end_time,
+                'is_all_day': is_all_day,
+                'html_link': event.get('htmlLink', ''),
+                'meet_link': meet_link,
+                'attendees': attendees_list,
+                'status': event.get('status', 'confirmed'),
+                'organizer_email': event.get('organizer', {}).get('email', ''),
+                'created': event.get('created', ''),
+                'updated': event.get('updated', '')
+            })

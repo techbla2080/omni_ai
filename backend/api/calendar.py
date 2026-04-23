@@ -15,6 +15,7 @@ from sqlalchemy import text
 from services.calendar_service import (
     exchange_code_for_tokens,
     get_user_email,
+    fetch_events,
 )
 from database.database import get_db
 
@@ -166,4 +167,71 @@ async def disconnect_calendar(
     except HTTPException:
         raise
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================
+# #30 — Event Reading Endpoints
+# ============================================================
+
+@router.get("/events")
+async def get_events(
+    request: Request,
+    range: Optional[str] = Query(None, description="Preset range: today, tomorrow, week, month"),
+    start: Optional[str] = Query(None, description="Custom start (ISO 8601)"),
+    end: Optional[str] = Query(None, description="Custom end (ISO 8601)"),
+    max_results: int = Query(20, le=50),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Fetch calendar events.
+    
+    Usage:
+        GET /events?range=today
+        GET /events?range=tomorrow
+        GET /events?range=week
+        GET /events?range=month
+        GET /events?start=2026-04-21T00:00:00Z&end=2026-04-28T00:00:00Z
+        GET /events (defaults to next 7 days)
+    """
+    from datetime import datetime, timedelta, timezone
+    
+    user_id = await get_user_id(request, db)
+    tokens = await get_calendar_tokens(user_id, db)
+    
+    # Compute time range based on 'range' preset if given
+    time_min = start
+    time_max = end
+    
+    if range and not (start or end):
+        now = datetime.now(timezone.utc)
+        if range == "today":
+            time_min = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+            time_max = now.replace(hour=23, minute=59, second=59).isoformat()
+        elif range == "tomorrow":
+            tomorrow = now + timedelta(days=1)
+            time_min = tomorrow.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+            time_max = tomorrow.replace(hour=23, minute=59, second=59).isoformat()
+        elif range == "week":
+            time_min = now.isoformat()
+            time_max = (now + timedelta(days=7)).isoformat()
+        elif range == "month":
+            time_min = now.isoformat()
+            time_max = (now + timedelta(days=30)).isoformat()
+    
+    try:
+        events = fetch_events(
+            tokens,
+            time_min=time_min,
+            time_max=time_max,
+            max_results=max_results
+        )
+        return {
+            "events": events,
+            "count": len(events),
+            "range": range,
+            "time_min": time_min,
+            "time_max": time_max
+        }
+    except Exception as e:
+        logger.error(f"Error fetching events: {e}")
         raise HTTPException(status_code=500, detail=str(e))
