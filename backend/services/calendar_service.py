@@ -131,6 +131,7 @@ def get_user_email(token_data: Dict[str, Any]) -> str:
         logger.error(f"Error fetching user email: {e}")
     return ""
 
+
 def fetch_events(token_data: Dict[str, Any], 
                   time_min: str = None, 
                   time_max: str = None, 
@@ -214,3 +215,24 @@ def fetch_events(token_data: Dict[str, Any],
                 'created': event.get('created', ''),
                 'updated': event.get('updated', '')
             })
+        
+        return normalized
+        
+    except HttpError as e:
+        logger.error(f"Calendar API error in fetch_events: {e}")
+        raise
+
+
+def get_events_count_for_range(token_data: Dict[str, Any], days: int = 7) -> int:
+    """Quick helper: count of events in the next N days"""
+    from datetime import datetime, timedelta, timezone
+    
+    time_min = datetime.now(timezone.utc).isoformat()
+    time_max = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+    
+    try:
+        events = fetch_events(token_data, time_min=time_min, time_max=time_max, max_results=50)
+        return len(events)
+    except Exception as e:
+        logger.error(f"Error counting events: {e}")
+        return 0
