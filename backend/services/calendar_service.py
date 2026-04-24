@@ -236,3 +236,99 @@ def get_events_count_for_range(token_data: Dict[str, Any], days: int = 7) -> int
     except Exception as e:
         logger.error(f"Error counting events: {e}")
         return 0
+
+def create_event(token_data: Dict[str, Any],
+                  summary: str,
+                  start: str,
+                  end: str,
+                  description: str = None,
+                  location: str = None,
+                  attendees: list = None,
+                  add_meet: bool = False,
+                  timezone_str: str = "Asia/Kolkata") -> Dict[str, Any]:
+    """
+    Create a new event on the user's primary Google Calendar.
+
+    Args:
+        token_data: Saved OAuth tokens
+        summary: Event title (e.g., "Team standup")
+        start: ISO 8601 start time (e.g., "2026-04-25T15:00:00+05:30")
+        end: ISO 8601 end time (e.g., "2026-04-25T16:00:00+05:30")
+        description: Optional event description/notes
+        location: Optional physical location or address
+        attendees: Optional list of email strings (e.g., ["rahul@example.com"])
+        add_meet: If True, generate a Google Meet link for the event
+        timezone_str: IANA timezone (default: Asia/Kolkata for Indian users)
+
+    Returns:
+        Dict with created event details (id, summary, start, end, link, meet_link)
+    """
+    service = get_calendar_service(token_data)
+
+    # Handle date-only vs datetime
+    is_all_day = 'T' not in start
+    start_field = {'date': start} if is_all_day else {'dateTime': start, 'timeZone': timezone_str}
+    end_field = {'date': end} if is_all_day else {'dateTime': end, 'timeZone': timezone_str}
+
+    event_body = {
+        'summary': summary,
+        'start': start_field,
+        'end': end_field,
+    }
+
+    if description:
+        event_body['description'] = description
+    if location:
+        event_body['location'] = location
+    if attendees:
+        event_body['attendees'] = [{'email': email.strip()} for email in attendees if email and email.strip()]
+
+    # Optional: add Google Meet conference
+    conference_data_version = 0
+    if add_meet:
+        import uuid
+        event_body['conferenceData'] = {
+            'createRequest': {
+                'requestId': str(uuid.uuid4()),
+                'conferenceSolutionKey': {'type': 'hangoutsMeet'}
+            }
+        }
+        conference_data_version = 1
+
+    try:
+        created = service.events().insert(
+            calendarId='primary',
+            body=event_body,
+            conferenceDataVersion=conference_data_version,
+            sendUpdates='all' if attendees else 'none'
+        ).execute()
+
+        # Extract meet link if generated
+        meet_link = None
+        conference = created.get('conferenceData', {})
+        if conference:
+            for entry in conference.get('entryPoints', []):
+                if entry.get('entryPointType') == 'video':
+                    meet_link = entry.get('uri')
+                    break
+
+        start_obj = created.get('start', {})
+        end_obj = created.get('end', {})
+
+        return {
+            'id': created.get('id', ''),
+            'summary': created.get('summary', ''),
+            'description': created.get('description', ''),
+            'location': created.get('location', ''),
+            'start': start_obj.get('dateTime') or start_obj.get('date', ''),
+            'end': end_obj.get('dateTime') or end_obj.get('date', ''),
+            'html_link': created.get('htmlLink', ''),
+            'meet_link': meet_link,
+            'attendees': [{'email': a.get('email', ''), 'response': a.get('responseStatus', '')} 
+                         for a in created.get('attendees', [])],
+            'status': created.get('status', 'confirmed'),
+            'created': created.get('created', '')
+        }
+    except HttpError as e:
+        logger.error(f"Calendar API error in create_event: {e}")
+        raise

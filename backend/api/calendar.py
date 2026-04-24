@@ -1,14 +1,15 @@
 """
 OmniAI Calendar API Router
 Handles Google Calendar OAuth (Task #29).
-Event read/write endpoints will be added in Tasks #30/#31.
+Event reading (Task #30) and event creation (Task #31).
 """
 
 import json
 import logging
-from typing import Optional
+from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
@@ -16,10 +17,27 @@ from services.calendar_service import (
     exchange_code_for_tokens,
     get_user_email,
     fetch_events,
+    create_event,
 )
 from database.database import get_db
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================
+# Request/Response Models
+# ============================================================
+
+class CreateEventRequest(BaseModel):
+    summary: str
+    start: str  # ISO 8601 datetime (e.g., "2026-04-25T15:00:00+05:30")
+    end: str    # ISO 8601 datetime
+    description: Optional[str] = None
+    location: Optional[str] = None
+    attendees: Optional[List[str]] = None
+    add_meet: bool = False
+    timezone: str = "Asia/Kolkata"
+
 
 router = APIRouter(prefix="/api/v1/calendar", tags=["calendar"])
 
@@ -169,8 +187,9 @@ async def disconnect_calendar(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # ============================================================
-# #30 — Event Reading Endpoints
+# #30 — Event Reading Endpoint
 # ============================================================
 
 @router.get("/events")
@@ -184,7 +203,7 @@ async def get_events(
 ):
     """
     Fetch calendar events.
-    
+
     Usage:
         GET /events?range=today
         GET /events?range=tomorrow
@@ -194,14 +213,14 @@ async def get_events(
         GET /events (defaults to next 7 days)
     """
     from datetime import datetime, timedelta, timezone
-    
+
     user_id = await get_user_id(request, db)
     tokens = await get_calendar_tokens(user_id, db)
-    
+
     # Compute time range based on 'range' preset if given
     time_min = start
     time_max = end
-    
+
     if range and not (start or end):
         now = datetime.now(timezone.utc)
         if range == "today":
@@ -217,7 +236,7 @@ async def get_events(
         elif range == "month":
             time_min = now.isoformat()
             time_max = (now + timedelta(days=30)).isoformat()
-    
+
     try:
         events = fetch_events(
             tokens,
@@ -234,4 +253,51 @@ async def get_events(
         }
     except Exception as e:
         logger.error(f"Error fetching events: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# #31 — Event Creation Endpoint
+# ============================================================
+
+@router.post("/events")
+async def create_calendar_event(
+    request: Request,
+    body: CreateEventRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Create a new calendar event.
+
+    Body:
+        summary: Event title (required)
+        start: ISO 8601 datetime (required, e.g., "2026-04-25T15:00:00+05:30")
+        end: ISO 8601 datetime (required)
+        description: Optional notes
+        location: Optional location
+        attendees: Optional list of emails ["alice@example.com", "bob@example.com"]
+        add_meet: If true, attach a Google Meet link
+        timezone: IANA timezone (default "Asia/Kolkata")
+
+    Returns:
+        Created event details including event id, html_link, and meet_link if generated.
+    """
+    user_id = await get_user_id(request, db)
+    tokens = await get_calendar_tokens(user_id, db)
+
+    try:
+        event = create_event(
+            tokens,
+            summary=body.summary,
+            start=body.start,
+            end=body.end,
+            description=body.description,
+            location=body.location,
+            attendees=body.attendees,
+            add_meet=body.add_meet,
+            timezone_str=body.timezone
+        )
+        return {"success": True, "event": event}
+    except Exception as e:
+        logger.error(f"Error creating event: {e}")
         raise HTTPException(status_code=500, detail=str(e))
