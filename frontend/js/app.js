@@ -76,16 +76,13 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.appendChild(overlay);
     }
 
-    // Initialize mode pills UI to normal by default
     updateModePillUI('normal');
 
-    // Gmail init
     setTimeout(() => {
         injectGmailButton();
         initGmail();
     }, 1500);
 
-    // Calendar init — #29
     setTimeout(() => {
         injectCalendarButton();
         initCalendar();
@@ -173,7 +170,6 @@ function updateModePillUI(mode) {
 
     currentMode = mode;
 
-    // Update active pill
     document.querySelectorAll('.mode-pill').forEach(pill => {
         if (pill.dataset.mode === mode) {
             pill.classList.add('active');
@@ -182,13 +178,11 @@ function updateModePillUI(mode) {
         }
     });
 
-    // Update input placeholder
     const input = document.getElementById('messageInput');
     if (input && MODE_PLACEHOLDERS[mode]) {
         input.placeholder = MODE_PLACEHOLDERS[mode];
     }
 
-    // Update input container glow class
     const inputContainer = document.querySelector('.input-container');
     if (inputContainer) {
         inputContainer.classList.remove(
@@ -208,10 +202,8 @@ async function switchMode(mode) {
     if (!validModes.includes(mode)) return;
     if (mode === currentMode) return;
 
-    // Update UI immediately for responsiveness
     updateModePillUI(mode);
 
-    // If there's an existing conversation, persist the mode change to backend
     if (conversationId) {
         try {
             const response = await authFetch(
@@ -229,7 +221,6 @@ async function switchMode(mode) {
         }
     }
 
-    // Add a subtle system message in chat if mode changed (only if conversation exists)
     if (conversationId) {
         addModeChangeNotice(mode);
     }
@@ -343,7 +334,6 @@ function injectCalendarButton() {
     btn.innerHTML = '📅 Connect Calendar';
     btn.title = 'Connect Google Calendar';
     btn.onclick = handleCalendarButtonClick;
-    // Insert before send button (or at the end if send button not found)
     const sendBtn = document.getElementById('sendButton');
     if (sendBtn) inputContainer.insertBefore(btn, sendBtn);
     else inputContainer.appendChild(btn);
@@ -380,6 +370,204 @@ async function disconnectCalendar() {
         addAssistantMessage('Calendar disconnected.');
     } catch (e) {
         addAssistantMessage('❌ Could not disconnect Calendar.');
+    }
+}
+
+// ============================================================================
+// CALENDAR VIEW UI — #32
+// ============================================================================
+
+function detectCalendarIntent(message) {
+    if (!message || typeof message !== 'string') return null;
+    
+    const text = message.toLowerCase().trim();
+    
+    if (/today's schedule|today's event|today's meeting|on today/i.test(text)) {
+        return { action: 'fetch', range: 'today' };
+    }
+    if (/\btoday\b/i.test(text) && /(calendar|schedule|event|meeting|appointment|plan|busy|free)/i.test(text)) {
+        return { action: 'fetch', range: 'today' };
+    }
+    if (/tomorrow's|tomorrow.{0,5}(schedule|event|meeting)|on tomorrow/i.test(text)) {
+        return { action: 'fetch', range: 'tomorrow' };
+    }
+    if (/\btomorrow\b/i.test(text) && /(calendar|schedule|event|meeting|appointment|plan|busy|free)/i.test(text)) {
+        return { action: 'fetch', range: 'tomorrow' };
+    }
+    if (/this week|week's events|weekly|next 7 days|coming week|upcoming week|this week's/i.test(text)) {
+        return { action: 'fetch', range: 'week' };
+    }
+    if (/this month|month's events|next 30 days|coming month|monthly view/i.test(text)) {
+        return { action: 'fetch', range: 'month' };
+    }
+    
+    if (/\b(calendar|schedule|events?|meetings?|appointments?|agenda)\b/i.test(text)) {
+        return { action: 'fetch', range: 'week' };
+    }
+    if (/what.{0,5}(on|happening|going on|planned|coming up)/i.test(text)) {
+        return { action: 'fetch', range: 'week' };
+    }
+    if (/(am i|are we) (busy|free|booked)/i.test(text)) {
+        return { action: 'fetch', range: 'week' };
+    }
+    
+    return null;
+}
+
+function renderEventCard(event) {
+    const startStr = event.start || '';
+    const endStr = event.end || '';
+    
+    let timeDisplay = '';
+    let dateDisplay = '';
+    try {
+        if (event.is_all_day) {
+            const startDate = new Date(startStr);
+            dateDisplay = startDate.toLocaleDateString('en-IN', { 
+                weekday: 'short', month: 'short', day: 'numeric' 
+            });
+            timeDisplay = 'All day';
+        } else {
+            const startDate = new Date(startStr);
+            const endDate = new Date(endStr);
+            dateDisplay = startDate.toLocaleDateString('en-IN', { 
+                weekday: 'short', month: 'short', day: 'numeric' 
+            });
+            const startTime = startDate.toLocaleTimeString('en-IN', { 
+                hour: 'numeric', minute: '2-digit', hour12: true 
+            });
+            const endTime = endDate.toLocaleTimeString('en-IN', { 
+                hour: 'numeric', minute: '2-digit', hour12: true 
+            });
+            timeDisplay = `${startTime} – ${endTime}`;
+        }
+    } catch (e) {
+        timeDisplay = startStr;
+    }
+    
+    let attendeesHTML = '';
+    if (event.attendees && event.attendees.length > 0) {
+        const visibleAttendees = event.attendees.slice(0, 3);
+        const extraCount = event.attendees.length - 3;
+        attendeesHTML = `
+            <div class="event-attendees">
+                <span class="event-icon">👥</span>
+                ${visibleAttendees.map(a => 
+                    `<span class="attendee-pill">${escapeHtml(a.name || a.email || '')}</span>`
+                ).join('')}
+                ${extraCount > 0 ? `<span class="attendee-pill">+${extraCount} more</span>` : ''}
+            </div>
+        `;
+    }
+    
+    const meetButton = event.meet_link 
+        ? `<a href="${event.meet_link}" target="_blank" class="event-meet-btn">📹 Join Meet</a>` 
+        : '';
+    
+    const calLink = event.html_link 
+        ? `<a href="${event.html_link}" target="_blank" class="event-cal-link">View in Calendar →</a>` 
+        : '';
+    
+    const locationHTML = event.location 
+        ? `<div class="event-location"><span class="event-icon">📍</span>${escapeHtml(event.location)}</div>` 
+        : '';
+    
+    let descHTML = '';
+    if (event.description) {
+        const truncated = event.description.length > 150 
+            ? event.description.substring(0, 150) + '...' 
+            : event.description;
+        descHTML = `<div class="event-description">${escapeHtml(truncated)}</div>`;
+    }
+    
+    return `
+        <div class="event-card">
+            <div class="event-header">
+                <div class="event-date-time">
+                    <span class="event-date">${dateDisplay}</span>
+                    <span class="event-time">${timeDisplay}</span>
+                </div>
+                ${meetButton}
+            </div>
+            <div class="event-title">${escapeHtml(event.summary || '(no title)')}</div>
+            ${locationHTML}
+            ${descHTML}
+            ${attendeesHTML}
+            ${calLink}
+        </div>
+    `;
+}
+
+function displayEventCards(eventsData) {
+    const container = document.getElementById('messagesContainer');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message assistant';
+    
+    const events = eventsData.events || [];
+    const range = eventsData.range || 'upcoming';
+    
+    let headerText = '';
+    if (range === 'today') headerText = `📅 Today's Events (${events.length})`;
+    else if (range === 'tomorrow') headerText = `📅 Tomorrow's Events (${events.length})`;
+    else if (range === 'week') headerText = `📅 This Week (${events.length} events)`;
+    else if (range === 'month') headerText = `📅 This Month (${events.length} events)`;
+    else headerText = `📅 Your Events (${events.length})`;
+    
+    let cardsHTML = '';
+    if (events.length === 0) {
+        cardsHTML = `
+            <div class="event-empty">
+                <div class="event-empty-icon">🎉</div>
+                <div class="event-empty-text">No events scheduled. You're free!</div>
+            </div>
+        `;
+    } else {
+        cardsHTML = events.map(renderEventCard).join('');
+    }
+    
+    messageDiv.innerHTML = `
+        <div class="message-header">
+            <div class="avatar assistant">✦</div>
+            <div class="sender-name">OmniAI</div>
+        </div>
+        <div class="message-content">
+            <div class="events-container">
+                <div class="events-header">${headerText}</div>
+                ${cardsHTML}
+            </div>
+        </div>
+    `;
+    
+    container.appendChild(messageDiv);
+    scrollToBottom();
+}
+
+async function handleCalendarMessage(message) {
+    if (!calendarConnected) {
+        addAssistantMessage(`To use Calendar features, connect your Google Calendar first.\n\nClick the **📅 Connect Calendar** button below!`);
+        return true;
+    }
+    
+    const intent = detectCalendarIntent(message);
+    const range = (intent && intent.range) ? intent.range : 'week';
+    
+    addTypingIndicator('📅 Loading your calendar...');
+    
+    try {
+        const response = await authFetch(`/api/v1/calendar/events?range=${range}`);
+        removeTypingIndicator();
+        
+        if (response.ok) {
+            const data = await response.json();
+            displayEventCards(data);
+        } else {
+            addAssistantMessage('❌ Could not load calendar events. Please try again.');
+        }
+        return true;
+    } catch (e) {
+        removeTypingIndicator();
+        addAssistantMessage('❌ Calendar error: ' + e.message);
+        return true;
     }
 }
 
@@ -498,7 +686,6 @@ function detectGmailIntent(message) {
         /summarize.*(my )?(inbox|email)/i,
         /urgent.*(email|mail)/i,
         /inbox/i,
-        // #28 — broader reasoning triggers (work without "email" word)
         /action item/i,
         /pending.*(action|task|item|email|reply)/i,
         /what.*urgent/i,
@@ -519,7 +706,6 @@ function detectSearchIntent(message) {
     return /search.*email|find.*email|look.*email|email.*from|email.*about/i.test(message);
 }
 
-// #26 — detect when user wants to SEE/LIST emails (vs ask about them)
 function detectShowListIntent(message) {
     return /^(show|list|check|get|display|give me|see).*(email|inbox|mail|message)/i.test(message) ||
            /(unread|new|recent).*(email|mail|message)/i.test(message) ||
@@ -538,7 +724,6 @@ async function handleGmailMessage(message) {
     return true;
 }
 
-// #26 — render actual email cards for show/list intents
 async function handleShowEmailsIntent(message) {
     addTypingIndicator('📧 Loading your emails...');
     try {
@@ -807,7 +992,6 @@ async function loadConversation(id) {
         const data = await response.json();
         conversationId = id;
 
-        // #25: Load conversation mode and update UI
         const convMode = data.mode || 'normal';
         updateModePillUI(convMode);
 
@@ -841,7 +1025,6 @@ function startNewConversation() {
     closeSidebarOnMobile();
     updateMemoryIndicator(0);
 
-    // #25: Reset mode to normal on new chat
     updateModePillUI('normal');
 
     const input = document.getElementById('messageInput');
@@ -1654,7 +1837,7 @@ function toggleTheme() {
 })();
 
 // ============================================================================
-// SEND MESSAGE — Real SSE streaming with Gmail detection + #25 #26 #27 #28
+// SEND MESSAGE — with Gmail + Calendar routing — #24-#28 #32
 // ============================================================================
 
 async function sendMessage() {
@@ -1663,15 +1846,25 @@ async function sendMessage() {
     const message = input.value.trim();
     if (!message && attachedFiles.length === 0) return;
 
-    // Gmail routing — #24 #25 #26 #27 #28
-    // In Email mode: ALL messages go through Gmail pipeline (force routing)
-    // In other modes: only route if intent regex matches
+    // Gmail routing — #24-#28
     const shouldRouteToGmail = (currentMode === 'email') || detectGmailIntent(message);
     if (message && shouldRouteToGmail) {
         input.value = '';
         input.style.height = 'auto';
         addUserMessage(message);
         await handleGmailMessage(message);
+        return;
+    }
+
+    // Calendar routing — #32
+    // In Calendar mode: ALL messages go through Calendar pipeline (force routing)
+    // In other modes: only route if intent regex matches
+    const shouldRouteToCalendar = (currentMode === 'calendar') || detectCalendarIntent(message);
+    if (message && shouldRouteToCalendar) {
+        input.value = '';
+        input.style.height = 'auto';
+        addUserMessage(message);
+        await handleCalendarMessage(message);
         return;
     }
 
