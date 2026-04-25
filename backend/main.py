@@ -1,6 +1,6 @@
 """
 OmniAI Backend - v0.7.0
-Universal AI Interface with Chat, Files, Export, Auth, Gmail, Calendar
+Universal AI Interface with Chat, Files, Export, Auth, Gmail, Calendar, Intent Classifier
 """
 
 from fastapi import FastAPI, HTTPException, Request
@@ -55,6 +55,15 @@ except ImportError as e:
     HAS_CALENDAR_ROUTER = False
     logging.getLogger(__name__).warning(f"⚠️ Calendar router not loaded: {e}")
 
+# Intent classifier router — #33.5
+try:
+    from api.intent import router as intent_router
+    HAS_INTENT_ROUTER = True
+    logging.getLogger(__name__).info("✅ Intent classifier router loaded")
+except ImportError as e:
+    HAS_INTENT_ROUTER = False
+    logging.getLogger(__name__).warning(f"⚠️ Intent classifier router not loaded: {e}")
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -62,7 +71,7 @@ logger = logging.getLogger(__name__)
 # Create the app
 app = FastAPI(
     title="OmniAI API",
-    description="The Universal AI Interface - Now with Gmail + Calendar!",
+    description="The Universal AI Interface - Now with Gmail + Calendar + AI Intent Classifier!",
     version="0.7.0",
     debug=settings.DEBUG
 )
@@ -101,6 +110,10 @@ if HAS_GMAIL_ROUTER:
 
 if HAS_CALENDAR_ROUTER:
     app.include_router(calendar_router)
+
+if HAS_INTENT_ROUTER:
+    app.include_router(intent_router)
+    logger.info("✅ Intent classifier router registered")
 
 # ========================================
 # STATIC FILES (Frontend)
@@ -164,6 +177,7 @@ async def root():
             "User Authentication",
             "Gmail Integration",
             "Google Calendar Integration",
+            "AI Intent Classifier (multilingual)",
         ],
         "timestamp": datetime.utcnow().isoformat()
     }

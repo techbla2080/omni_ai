@@ -382,9 +382,7 @@ function detectCalendarIntent(message) {
     
     const text = message.toLowerCase().trim();
     
-    // #33 — Free slot intent (most specific first)
     if (/free.{0,5}(slot|time|hour|window)|find.{0,5}(time|slot|window)|when.{0,5}(am i free|can i|are we free|do i have time)|suggest.{0,5}(time|slot|meeting)|book.{0,5}(time|slot)|schedule.{0,5}(time|slot|meeting)/i.test(text)) {
-        // Try to detect duration: "30 min", "1 hour", "45 minutes"
         let duration = 30;
         const minMatch = text.match(/(\d+)\s*(min|minute)/i);
         const hourMatch = text.match(/(\d+(?:\.\d+)?)\s*(hr|hour)/i);
@@ -394,7 +392,6 @@ function detectCalendarIntent(message) {
             duration = parseInt(minMatch[1]);
         }
         
-        // Range detection for free slots
         let range = 'week';
         if (/today/i.test(text)) range = 'today';
         else if (/tomorrow/i.test(text)) range = 'tomorrow';
@@ -403,7 +400,6 @@ function detectCalendarIntent(message) {
         return { action: 'free_slots', range: range, duration: duration };
     }
     
-    // #32 — Range detection for viewing events
     if (/today's schedule|today's event|today's meeting|on today/i.test(text)) {
         return { action: 'fetch', range: 'today' };
     }
@@ -564,7 +560,6 @@ function displayEventCards(eventsData) {
     scrollToBottom();
 }
 
-// #33 — Render free slot suggestions as clickable cards
 function displayFreeSlotCards(slotData) {
     const container = document.getElementById('messagesContainer');
     const messageDiv = document.createElement('div');
@@ -624,7 +619,6 @@ function displayFreeSlotCards(slotData) {
     scrollToBottom();
 }
 
-// #33 — Book a slot via prompt for title
 async function bookSlot(start, end, button) {
     const title = prompt('Event title?', 'Quick meeting');
     if (!title) return;
@@ -683,7 +677,6 @@ async function handleCalendarMessage(message) {
     
     const intent = detectCalendarIntent(message);
     
-    // #33 — Free slot intent
     if (intent && intent.action === 'free_slots') {
         addTypingIndicator(`🕐 Finding free ${intent.duration}-min slots...`);
         try {
@@ -704,7 +697,6 @@ async function handleCalendarMessage(message) {
         return true;
     }
     
-    // #32 — Default: fetch events
     const range = (intent && intent.range) ? intent.range : 'week';
     
     addTypingIndicator('📅 Loading your calendar...');
@@ -725,6 +717,156 @@ async function handleCalendarMessage(message) {
         addAssistantMessage('❌ Calendar error: ' + e.message);
         return true;
     }
+}
+
+// ============================================================================
+// AI INTENT CLASSIFICATION — #33.5
+// AI classifier with regex fallback. Handles natural language, Hindi, slang.
+// ============================================================================
+
+async function classifyIntent(message, mode) {
+    try {
+        const response = await authFetch('/api/v1/intent/classify', {
+            method: 'POST',
+            body: JSON.stringify({ message: message, mode: mode || 'normal' })
+        });
+        if (!response.ok) {
+            console.log('[Intent] AI classifier returned non-200, will fall back to regex');
+            return null;
+        }
+        const data = await response.json();
+        if (data._error) {
+            console.log('[Intent] AI classifier error:', data._error);
+            return null;
+        }
+        console.log('[Intent] AI classified:', data);
+        return data;
+    } catch (e) {
+        console.log('[Intent] AI classifier unavailable, will fall back to regex:', e.message);
+        return null;
+    }
+}
+
+async function routeByAIIntent(message, intent) {
+    const domain = intent.domain;
+    const action = intent.action;
+    const params = intent.params || {};
+    
+    if (domain === 'gmail') {
+        await handleGmailMessageWithIntent(message, action, params);
+        return true;
+    }
+    
+    if (domain === 'calendar') {
+        await handleCalendarMessageWithIntent(message, action, params);
+        return true;
+    }
+    
+    if (domain === 'code') {
+        return false;
+    }
+    
+    return false;
+}
+
+async function handleCalendarMessageWithIntent(message, action, params) {
+    if (!calendarConnected) {
+        addAssistantMessage(`To use Calendar features, connect your Google Calendar first.\n\nClick the **📅 Connect Calendar** button below!`);
+        return;
+    }
+    
+    if (action === 'find_free_slots') {
+        const range = params.range || 'week';
+        const duration = params.duration_minutes || 30;
+        addTypingIndicator(`🕐 Finding free ${duration}-min slots...`);
+        try {
+            const url = `/api/v1/calendar/free-slots?duration=${duration}&range=${range}&max_suggestions=10`;
+            const response = await authFetch(url);
+            removeTypingIndicator();
+            if (response.ok) {
+                const data = await response.json();
+                displayFreeSlotCards(data);
+            } else {
+                addAssistantMessage('❌ Could not find free slots. Please try again.');
+            }
+        } catch (e) {
+            removeTypingIndicator();
+            addAssistantMessage('❌ Calendar error: ' + e.message);
+        }
+        return;
+    }
+    
+    if (action === 'show_events') {
+        const range = params.range || 'week';
+        addTypingIndicator('📅 Loading your calendar...');
+        try {
+            const response = await authFetch(`/api/v1/calendar/events?range=${range}`);
+            removeTypingIndicator();
+            if (response.ok) {
+                const data = await response.json();
+                displayEventCards(data);
+            } else {
+                addAssistantMessage('❌ Could not load calendar events.');
+            }
+        } catch (e) {
+            removeTypingIndicator();
+            addAssistantMessage('❌ Calendar error: ' + e.message);
+        }
+        return;
+    }
+    
+    // create_event, ask_about_calendar, or anything else → fall back to regex handler
+    await handleCalendarMessage(message);
+}
+
+async function handleGmailMessageWithIntent(message, action, params) {
+    if (!gmailConnected) {
+        addAssistantMessage(`To use Gmail features, connect your Gmail account first.\n\nClick the **📧 Connect Gmail** button below!`);
+        return;
+    }
+    
+    if (action === 'show_inbox') {
+        await handleShowEmailsIntent(message);
+        return;
+    }
+    
+    if (action === 'show_unread') {
+        await handleShowEmailsIntent('unread emails');
+        return;
+    }
+    
+    if (action === 'search_emails') {
+        const query = params.query || message;
+        addTypingIndicator('🔍 Searching your emails...');
+        try {
+            const response = await authFetch(`/api/v1/gmail/search?q=${encodeURIComponent(query)}&max_results=5`);
+            removeTypingIndicator();
+            if (response.ok) {
+                const data = await response.json();
+                if (data.emails.length === 0) addAssistantMessage(`No emails found for "${query}".`);
+                else displayEmailCards(data.emails, `Search results for "${query}"`);
+            } else {
+                addAssistantMessage('❌ Email search failed.');
+            }
+        } catch (e) {
+            removeTypingIndicator();
+            addAssistantMessage('❌ Search error: ' + e.message);
+        }
+        return;
+    }
+    
+    if (action === 'send_email') {
+        showComposeForm(message);
+        return;
+    }
+    
+    if (action === 'ask_about_emails') {
+        await handleAskEmailIntent(message);
+        return;
+    }
+    
+    // Fallback to regex-based handler
+    await handleGmailMessage(message);
 }
 
 // ============================================================================
@@ -1993,7 +2135,7 @@ function toggleTheme() {
 })();
 
 // ============================================================================
-// SEND MESSAGE — with Gmail + Calendar routing — #24-#28 #32 #33
+// SEND MESSAGE — AI Intent first (#33.5), regex fallback (#24-#28 #32 #33)
 // ============================================================================
 
 async function sendMessage() {
@@ -2002,24 +2144,43 @@ async function sendMessage() {
     const message = input.value.trim();
     if (!message && attachedFiles.length === 0) return;
 
-    // Gmail routing — #24-#28
-    const shouldRouteToGmail = (currentMode === 'email') || detectGmailIntent(message);
-    if (message && shouldRouteToGmail) {
-        input.value = '';
-        input.style.height = 'auto';
-        addUserMessage(message);
-        await handleGmailMessage(message);
-        return;
-    }
+    // ============================================================
+    // #33.5 — AI Intent Classification (with regex fallback)
+    // ============================================================
+    if (message) {
+        const intent = await classifyIntent(message, currentMode);
+        const CONFIDENCE_THRESHOLD = 0.7;
+        
+        if (intent && intent.confidence >= CONFIDENCE_THRESHOLD) {
+            // AI is confident — route by AI intent
+            input.value = '';
+            input.style.height = 'auto';
+            addUserMessage(message);
+            const handled = await routeByAIIntent(message, intent);
+            if (handled) return;
+            // If routeByAIIntent returns false (e.g. code domain), fall through to default flow
+        } else {
+            // AI uncertain or unavailable — use regex fallback
+            console.log('[Intent] Falling back to regex (AI confidence:', intent ? intent.confidence : 'N/A', ')');
+            
+            const shouldRouteToGmail = (currentMode === 'email') || detectGmailIntent(message);
+            if (shouldRouteToGmail) {
+                input.value = '';
+                input.style.height = 'auto';
+                addUserMessage(message);
+                await handleGmailMessage(message);
+                return;
+            }
 
-    // Calendar routing — #32 + #33
-    const shouldRouteToCalendar = (currentMode === 'calendar') || detectCalendarIntent(message);
-    if (message && shouldRouteToCalendar) {
-        input.value = '';
-        input.style.height = 'auto';
-        addUserMessage(message);
-        await handleCalendarMessage(message);
-        return;
+            const shouldRouteToCalendar = (currentMode === 'calendar') || detectCalendarIntent(message);
+            if (shouldRouteToCalendar) {
+                input.value = '';
+                input.style.height = 'auto';
+                addUserMessage(message);
+                await handleCalendarMessage(message);
+                return;
+            }
+        }
     }
 
     if (message) lastFailedMessage = message;
@@ -2033,11 +2194,19 @@ async function sendMessage() {
         displayAttachedFiles();
     }
     
-    if (message) {
-        addUserMessage(message);
+    if (message && !document.querySelector('.message.user[data-message-id]:last-child')) {
+        // Only add user message if not already added by AI routing branch
+        const allUserMessages = document.querySelectorAll('.message.user');
+        const lastUserMsg = allUserMessages[allUserMessages.length - 1];
+        const lastUserText = lastUserMsg ? lastUserMsg.querySelector('.message-content')?.textContent : '';
+        if (lastUserText !== message) {
+            addUserMessage(message);
+        }
         input.value = '';
         input.style.height = 'auto';
-    } else if (!uploadedFilesList) return;
+    } else if (!uploadedFilesList) {
+        return;
+    }
     
     if (message && detectCodeExecution(message)) {
         const code = extractCodeFromMessage(message);
