@@ -1,7 +1,7 @@
 """
 OmniAI Calendar API Router
-Handles Google Calendar OAuth (Task #29).
-Event reading (Task #30) and event creation (Task #31).
+Handles Google Calendar OAuth (#29), event read (#30), event create (#31),
+and free-slot suggestions (#33).
 """
 
 import json
@@ -18,6 +18,7 @@ from services.calendar_service import (
     get_user_email,
     fetch_events,
     create_event,
+    find_free_slots,
 )
 from database.database import get_db
 
@@ -30,8 +31,8 @@ logger = logging.getLogger(__name__)
 
 class CreateEventRequest(BaseModel):
     summary: str
-    start: str  # ISO 8601 datetime (e.g., "2026-04-25T15:00:00+05:30")
-    end: str    # ISO 8601 datetime
+    start: str
+    end: str
     description: Optional[str] = None
     location: Optional[str] = None
     attendees: Optional[List[str]] = None
@@ -76,11 +77,10 @@ async def connect_calendar(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    """Start Calendar OAuth flow — pass JWT as state so callback can save tokens"""
+    """Start Calendar OAuth flow"""
     try:
         user_id = await get_user_id(request, db)
 
-        # Get JWT token to use as OAuth state
         auth_header = request.headers.get("Authorization", "")
         token = auth_header.replace("Bearer ", "").strip()
         if not token:
@@ -109,7 +109,7 @@ async def calendar_callback(
     error: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db)
 ):
-    """Handle Calendar OAuth callback — exchange code for tokens and save them"""
+    """Handle Calendar OAuth callback"""
     if error:
         return RedirectResponse(url=f"/?calendar_error={error}")
 
@@ -201,23 +201,12 @@ async def get_events(
     max_results: int = Query(20, le=50),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    Fetch calendar events.
-
-    Usage:
-        GET /events?range=today
-        GET /events?range=tomorrow
-        GET /events?range=week
-        GET /events?range=month
-        GET /events?start=2026-04-21T00:00:00Z&end=2026-04-28T00:00:00Z
-        GET /events (defaults to next 7 days)
-    """
+    """Fetch calendar events"""
     from datetime import datetime, timedelta, timezone
 
     user_id = await get_user_id(request, db)
     tokens = await get_calendar_tokens(user_id, db)
 
-    # Compute time range based on 'range' preset if given
     time_min = start
     time_max = end
 
@@ -266,22 +255,7 @@ async def create_calendar_event(
     body: CreateEventRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    Create a new calendar event.
-
-    Body:
-        summary: Event title (required)
-        start: ISO 8601 datetime (required, e.g., "2026-04-25T15:00:00+05:30")
-        end: ISO 8601 datetime (required)
-        description: Optional notes
-        location: Optional location
-        attendees: Optional list of emails ["alice@example.com", "bob@example.com"]
-        add_meet: If true, attach a Google Meet link
-        timezone: IANA timezone (default "Asia/Kolkata")
-
-    Returns:
-        Created event details including event id, html_link, and meet_link if generated.
-    """
+    """Create a new calendar event"""
     user_id = await get_user_id(request, db)
     tokens = await get_calendar_tokens(user_id, db)
 
@@ -300,4 +274,77 @@ async def create_calendar_event(
         return {"success": True, "event": event}
     except Exception as e:
         logger.error(f"Error creating event: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# #33 — Free Slot Suggestions Endpoint
+# ============================================================
+
+@router.get("/free-slots")
+async def get_free_slots(
+    request: Request,
+    duration: int = Query(30, ge=15, le=480, description="Slot duration in minutes (15-480)"),
+    range: Optional[str] = Query("week", description="Preset: today, tomorrow, week, month"),
+    start: Optional[str] = Query(None, description="Custom start (ISO 8601)"),
+    end: Optional[str] = Query(None, description="Custom end (ISO 8601)"),
+    max_suggestions: int = Query(10, ge=1, le=20),
+    timezone: str = Query("Asia/Kolkata"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Find free time slots in the user's calendar.
+    Scans 24/7 (no working hours imposed) and returns rounded slot suggestions.
+
+    Usage:
+        GET /free-slots?duration=30&range=week
+        GET /free-slots?duration=60&range=tomorrow
+        GET /free-slots?duration=45&start=2026-04-25T00:00:00%2B05:30&end=2026-04-30T23:59:59%2B05:30
+    """
+    from datetime import datetime, timedelta, timezone as tz
+
+    user_id = await get_user_id(request, db)
+    tokens = await get_calendar_tokens(user_id, db)
+
+    time_min = start
+    time_max = end
+
+    if range and not (start or end):
+        now = datetime.now(tz.utc)
+        if range == "today":
+            time_min = now.isoformat()
+            time_max = now.replace(hour=23, minute=59, second=59).isoformat()
+        elif range == "tomorrow":
+            tomorrow = now + timedelta(days=1)
+            time_min = tomorrow.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+            time_max = tomorrow.replace(hour=23, minute=59, second=59).isoformat()
+        elif range == "week":
+            time_min = now.isoformat()
+            time_max = (now + timedelta(days=7)).isoformat()
+        elif range == "month":
+            time_min = now.isoformat()
+            time_max = (now + timedelta(days=30)).isoformat()
+
+    if not time_min or not time_max:
+        raise HTTPException(status_code=400, detail="Provide either 'range' or both 'start' and 'end'.")
+
+    try:
+        slots = find_free_slots(
+            tokens,
+            time_min=time_min,
+            time_max=time_max,
+            duration_minutes=duration,
+            max_suggestions=max_suggestions,
+            timezone_str=timezone
+        )
+        return {
+            "slots": slots,
+            "count": len(slots),
+            "duration_minutes": duration,
+            "range": range,
+            "time_min": time_min,
+            "time_max": time_max
+        }
+    except Exception as e:
+        logger.error(f"Error finding free slots: {e}")
         raise HTTPException(status_code=500, detail=str(e))

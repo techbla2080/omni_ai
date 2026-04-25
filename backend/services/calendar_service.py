@@ -1,11 +1,12 @@
 """
 OmniAI Calendar Service
-Handles OAuth2 flow and Google Calendar API calls
+Handles OAuth2 flow and Google Calendar API calls.
+Includes: OAuth (#29), event read (#30), event create (#31), free slots (#33).
 """
 
 import os
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
@@ -138,21 +139,12 @@ def fetch_events(token_data: Dict[str, Any],
                   max_results: int = 20) -> list:
     """
     Fetch calendar events from the user's primary calendar.
-    
-    Args:
-        token_data: Saved OAuth tokens for the user
-        time_min: ISO 8601 start time (e.g., '2026-04-21T00:00:00Z'). Defaults to now.
-        time_max: ISO 8601 end time. Defaults to 7 days from now.
-        max_results: Maximum number of events to return (1-50)
-    
-    Returns:
-        List of event dicts with id, summary, start, end, location, attendees, etc.
+    Returns normalized list of event dicts.
     """
     from datetime import datetime, timedelta, timezone
     
     service = get_calendar_service(token_data)
     
-    # Default time range: now → 7 days from now
     if not time_min:
         time_min = datetime.now(timezone.utc).isoformat()
     if not time_max:
@@ -170,13 +162,11 @@ def fetch_events(token_data: Dict[str, Any],
         
         events = events_result.get('items', [])
         
-        # Normalize event data for frontend consumption
         normalized = []
         for event in events:
             start = event.get('start', {})
             end = event.get('end', {})
             
-            # Determine if it's an all-day event
             is_all_day = 'date' in start
             start_time = start.get('dateTime') or start.get('date', '')
             end_time = end.get('dateTime') or end.get('date', '')
@@ -190,7 +180,6 @@ def fetch_events(token_data: Dict[str, Any],
                     'is_organizer': attendee.get('organizer', False)
                 })
             
-            # Extract meet link if present
             meet_link = None
             conference = event.get('conferenceData', {})
             if conference:
@@ -237,6 +226,7 @@ def get_events_count_for_range(token_data: Dict[str, Any], days: int = 7) -> int
         logger.error(f"Error counting events: {e}")
         return 0
 
+
 def create_event(token_data: Dict[str, Any],
                   summary: str,
                   start: str,
@@ -248,24 +238,9 @@ def create_event(token_data: Dict[str, Any],
                   timezone_str: str = "Asia/Kolkata") -> Dict[str, Any]:
     """
     Create a new event on the user's primary Google Calendar.
-
-    Args:
-        token_data: Saved OAuth tokens
-        summary: Event title (e.g., "Team standup")
-        start: ISO 8601 start time (e.g., "2026-04-25T15:00:00+05:30")
-        end: ISO 8601 end time (e.g., "2026-04-25T16:00:00+05:30")
-        description: Optional event description/notes
-        location: Optional physical location or address
-        attendees: Optional list of email strings (e.g., ["rahul@example.com"])
-        add_meet: If True, generate a Google Meet link for the event
-        timezone_str: IANA timezone (default: Asia/Kolkata for Indian users)
-
-    Returns:
-        Dict with created event details (id, summary, start, end, link, meet_link)
     """
     service = get_calendar_service(token_data)
 
-    # Handle date-only vs datetime
     is_all_day = 'T' not in start
     start_field = {'date': start} if is_all_day else {'dateTime': start, 'timeZone': timezone_str}
     end_field = {'date': end} if is_all_day else {'dateTime': end, 'timeZone': timezone_str}
@@ -283,7 +258,6 @@ def create_event(token_data: Dict[str, Any],
     if attendees:
         event_body['attendees'] = [{'email': email.strip()} for email in attendees if email and email.strip()]
 
-    # Optional: add Google Meet conference
     conference_data_version = 0
     if add_meet:
         import uuid
@@ -303,7 +277,6 @@ def create_event(token_data: Dict[str, Any],
             sendUpdates='all' if attendees else 'none'
         ).execute()
 
-        # Extract meet link if generated
         meet_link = None
         conference = created.get('conferenceData', {})
         if conference:
@@ -324,7 +297,7 @@ def create_event(token_data: Dict[str, Any],
             'end': end_obj.get('dateTime') or end_obj.get('date', ''),
             'html_link': created.get('htmlLink', ''),
             'meet_link': meet_link,
-            'attendees': [{'email': a.get('email', ''), 'response': a.get('responseStatus', '')} 
+            'attendees': [{'email': a.get('email', ''), 'response': a.get('responseStatus', '')}
                          for a in created.get('attendees', [])],
             'status': created.get('status', 'confirmed'),
             'created': created.get('created', '')
@@ -332,3 +305,119 @@ def create_event(token_data: Dict[str, Any],
     except HttpError as e:
         logger.error(f"Calendar API error in create_event: {e}")
         raise
+
+
+# ============================================================
+# #33 — Free Slot Finding
+# ============================================================
+
+def find_free_slots(token_data: Dict[str, Any],
+                     time_min: str,
+                     time_max: str,
+                     duration_minutes: int = 30,
+                     max_suggestions: int = 10,
+                     timezone_str: str = "Asia/Kolkata") -> List[Dict[str, Any]]:
+    """
+    Find free time slots in the user's calendar within a given range.
+    Scans 24/7 — no working hours imposed.
+    
+    Args:
+        token_data: OAuth tokens
+        time_min: ISO 8601 range start (e.g., "2026-04-25T00:00:00+05:30")
+        time_max: ISO 8601 range end
+        duration_minutes: Required slot length in minutes (default 30)
+        max_suggestions: Max number of free slots to return
+        timezone_str: Timezone for display
+    
+    Returns:
+        List of free slot dicts: [{start, end, duration_minutes, day_label}, ...]
+    """
+    from datetime import datetime, timedelta
+    
+    # Fetch events in the range
+    try:
+        events = fetch_events(token_data, time_min=time_min, time_max=time_max, max_results=50)
+    except Exception as e:
+        logger.error(f"Error fetching events for free slots: {e}")
+        raise
+    
+    # Parse range start/end
+    try:
+        range_start = datetime.fromisoformat(time_min.replace('Z', '+00:00'))
+        range_end = datetime.fromisoformat(time_max.replace('Z', '+00:00'))
+    except Exception as e:
+        logger.error(f"Error parsing time range: {e}")
+        raise ValueError(f"Invalid time range: {e}")
+    
+    # Build a list of busy intervals (skip all-day events for slot finding)
+    busy_intervals = []
+    for ev in events:
+        if ev.get('is_all_day'):
+            continue
+        try:
+            start = datetime.fromisoformat(ev['start'].replace('Z', '+00:00'))
+            end = datetime.fromisoformat(ev['end'].replace('Z', '+00:00'))
+            busy_intervals.append((start, end))
+        except Exception:
+            continue
+    
+    # Sort and merge overlapping intervals
+    busy_intervals.sort(key=lambda x: x[0])
+    merged_busy = []
+    for interval in busy_intervals:
+        if merged_busy and interval[0] <= merged_busy[-1][1]:
+            merged_busy[-1] = (merged_busy[-1][0], max(merged_busy[-1][1], interval[1]))
+        else:
+            merged_busy.append(interval)
+    
+    # Find gaps between busy intervals (= free slots)
+    free_slots = []
+    cursor = range_start
+    duration_delta = timedelta(minutes=duration_minutes)
+    
+    for busy_start, busy_end in merged_busy:
+        # Gap between cursor and the next busy interval
+        if busy_start > cursor:
+            gap_duration = busy_start - cursor
+            if gap_duration >= duration_delta:
+                free_slots.append((cursor, busy_start))
+        cursor = max(cursor, busy_end)
+    
+    # Final gap from cursor to range_end
+    if range_end > cursor:
+        gap_duration = range_end - cursor
+        if gap_duration >= duration_delta:
+            free_slots.append((cursor, range_end))
+    
+    # Format slots — split large gaps into rounded suggestion blocks
+    suggestions = []
+    for slot_start, slot_end in free_slots:
+        if len(suggestions) >= max_suggestions:
+            break
+        
+        # Round to next 15-min boundary
+        minute = slot_start.minute
+        rounded_minute = ((minute + 14) // 15) * 15
+        if rounded_minute >= 60:
+            rounded_start = slot_start.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        else:
+            rounded_start = slot_start.replace(minute=rounded_minute, second=0, microsecond=0)
+        
+        # If the rounded start + duration fits in the slot, suggest it
+        if rounded_start + duration_delta <= slot_end:
+            suggested_end = rounded_start + duration_delta
+            day_label = rounded_start.strftime('%a, %b %d')
+            time_label = rounded_start.strftime('%I:%M %p').lstrip('0')
+            end_label = suggested_end.strftime('%I:%M %p').lstrip('0')
+            
+            suggestions.append({
+                'start': rounded_start.isoformat(),
+                'end': suggested_end.isoformat(),
+                'duration_minutes': duration_minutes,
+                'day_label': day_label,
+                'time_label': time_label,
+                'end_time_label': end_label,
+                'display': f"{day_label} · {time_label} – {end_label}"
+            })
+    
+    return suggestions

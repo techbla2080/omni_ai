@@ -374,7 +374,7 @@ async function disconnectCalendar() {
 }
 
 // ============================================================================
-// CALENDAR VIEW UI — #32
+// CALENDAR VIEW UI — #32 + FREE SLOTS — #33
 // ============================================================================
 
 function detectCalendarIntent(message) {
@@ -382,16 +382,38 @@ function detectCalendarIntent(message) {
     
     const text = message.toLowerCase().trim();
     
+    // #33 — Free slot intent (most specific first)
+    if (/free.{0,5}(slot|time|hour|window)|find.{0,5}(time|slot|window)|when.{0,5}(am i free|can i|are we free|do i have time)|suggest.{0,5}(time|slot|meeting)|book.{0,5}(time|slot)|schedule.{0,5}(time|slot|meeting)/i.test(text)) {
+        // Try to detect duration: "30 min", "1 hour", "45 minutes"
+        let duration = 30;
+        const minMatch = text.match(/(\d+)\s*(min|minute)/i);
+        const hourMatch = text.match(/(\d+(?:\.\d+)?)\s*(hr|hour)/i);
+        if (hourMatch) {
+            duration = Math.round(parseFloat(hourMatch[1]) * 60);
+        } else if (minMatch) {
+            duration = parseInt(minMatch[1]);
+        }
+        
+        // Range detection for free slots
+        let range = 'week';
+        if (/today/i.test(text)) range = 'today';
+        else if (/tomorrow/i.test(text)) range = 'tomorrow';
+        else if (/this month|coming month/i.test(text)) range = 'month';
+        
+        return { action: 'free_slots', range: range, duration: duration };
+    }
+    
+    // #32 — Range detection for viewing events
     if (/today's schedule|today's event|today's meeting|on today/i.test(text)) {
         return { action: 'fetch', range: 'today' };
     }
-    if (/\btoday\b/i.test(text) && /(calendar|schedule|event|meeting|appointment|plan|busy|free)/i.test(text)) {
+    if (/\btoday\b/i.test(text) && /(calendar|schedule|event|meeting|appointment|plan|busy)/i.test(text)) {
         return { action: 'fetch', range: 'today' };
     }
     if (/tomorrow's|tomorrow.{0,5}(schedule|event|meeting)|on tomorrow/i.test(text)) {
         return { action: 'fetch', range: 'tomorrow' };
     }
-    if (/\btomorrow\b/i.test(text) && /(calendar|schedule|event|meeting|appointment|plan|busy|free)/i.test(text)) {
+    if (/\btomorrow\b/i.test(text) && /(calendar|schedule|event|meeting|appointment|plan|busy)/i.test(text)) {
         return { action: 'fetch', range: 'tomorrow' };
     }
     if (/this week|week's events|weekly|next 7 days|coming week|upcoming week|this week's/i.test(text)) {
@@ -407,7 +429,7 @@ function detectCalendarIntent(message) {
     if (/what.{0,5}(on|happening|going on|planned|coming up)/i.test(text)) {
         return { action: 'fetch', range: 'week' };
     }
-    if (/(am i|are we) (busy|free|booked)/i.test(text)) {
+    if (/(am i|are we) (busy|booked)/i.test(text)) {
         return { action: 'fetch', range: 'week' };
     }
     
@@ -542,6 +564,117 @@ function displayEventCards(eventsData) {
     scrollToBottom();
 }
 
+// #33 — Render free slot suggestions as clickable cards
+function displayFreeSlotCards(slotData) {
+    const container = document.getElementById('messagesContainer');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message assistant';
+    
+    const slots = slotData.slots || [];
+    const duration = slotData.duration_minutes || 30;
+    const range = slotData.range || 'week';
+    
+    const rangeLabel = {
+        'today': 'today',
+        'tomorrow': 'tomorrow',
+        'week': 'this week',
+        'month': 'this month'
+    }[range] || 'in your range';
+    
+    let headerText = `🕐 Free Slots (${duration} min) ${rangeLabel}`;
+    
+    let cardsHTML = '';
+    if (slots.length === 0) {
+        cardsHTML = `
+            <div class="event-empty">
+                <div class="event-empty-icon">😅</div>
+                <div class="event-empty-text">No free slots of ${duration} min found ${rangeLabel}. Try a shorter duration or larger range.</div>
+            </div>
+        `;
+    } else {
+        cardsHTML = slots.map((slot, idx) => `
+            <div class="slot-card" data-slot-idx="${idx}">
+                <div class="slot-info">
+                    <div class="slot-day">${escapeHtml(slot.day_label)}</div>
+                    <div class="slot-time">${escapeHtml(slot.time_label)} – ${escapeHtml(slot.end_time_label)}</div>
+                    <div class="slot-duration">${slot.duration_minutes} min</div>
+                </div>
+                <button class="slot-book-btn" 
+                        onclick="bookSlot('${escapeHtml(slot.start)}', '${escapeHtml(slot.end)}', this)">
+                    📅 Book This
+                </button>
+            </div>
+        `).join('');
+    }
+    
+    messageDiv.innerHTML = `
+        <div class="message-header">
+            <div class="avatar assistant">✦</div>
+            <div class="sender-name">OmniAI</div>
+        </div>
+        <div class="message-content">
+            <div class="events-container">
+                <div class="events-header">${headerText}</div>
+                ${cardsHTML}
+            </div>
+        </div>
+    `;
+    
+    container.appendChild(messageDiv);
+    scrollToBottom();
+}
+
+// #33 — Book a slot via prompt for title
+async function bookSlot(start, end, button) {
+    const title = prompt('Event title?', 'Quick meeting');
+    if (!title) return;
+    
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = '⏳ Booking...';
+    
+    try {
+        const response = await authFetch('/api/v1/calendar/events', {
+            method: 'POST',
+            body: JSON.stringify({
+                summary: title,
+                start: start,
+                end: end,
+                add_meet: true
+            })
+        });
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            button.textContent = '✅ Booked!';
+            button.classList.add('booked');
+            const card = button.closest('.slot-card');
+            if (card) {
+                card.style.opacity = '0.6';
+                card.classList.add('slot-booked');
+            }
+            
+            const ev = data.event || {};
+            let confirmText = `✅ Booked "${escapeHtml(title)}"`;
+            if (ev.html_link) {
+                confirmText += ` — <a href="${ev.html_link}" target="_blank" class="event-cal-link">View in Calendar →</a>`;
+            }
+            if (ev.meet_link) {
+                confirmText += `<br/>📹 <a href="${ev.meet_link}" target="_blank" class="event-cal-link">${escapeHtml(ev.meet_link)}</a>`;
+            }
+            addAssistantMessage(confirmText, null, true);
+        } else {
+            button.disabled = false;
+            button.textContent = originalText;
+            alert('Failed to book: ' + (data.detail || 'Unknown error'));
+        }
+    } catch (e) {
+        button.disabled = false;
+        button.textContent = originalText;
+        alert('Error: ' + e.message);
+    }
+}
+
 async function handleCalendarMessage(message) {
     if (!calendarConnected) {
         addAssistantMessage(`To use Calendar features, connect your Google Calendar first.\n\nClick the **📅 Connect Calendar** button below!`);
@@ -549,6 +682,29 @@ async function handleCalendarMessage(message) {
     }
     
     const intent = detectCalendarIntent(message);
+    
+    // #33 — Free slot intent
+    if (intent && intent.action === 'free_slots') {
+        addTypingIndicator(`🕐 Finding free ${intent.duration}-min slots...`);
+        try {
+            const url = `/api/v1/calendar/free-slots?duration=${intent.duration}&range=${intent.range}&max_suggestions=10`;
+            const response = await authFetch(url);
+            removeTypingIndicator();
+            
+            if (response.ok) {
+                const data = await response.json();
+                displayFreeSlotCards(data);
+            } else {
+                addAssistantMessage('❌ Could not find free slots. Please try again.');
+            }
+        } catch (e) {
+            removeTypingIndicator();
+            addAssistantMessage('❌ Calendar error: ' + e.message);
+        }
+        return true;
+    }
+    
+    // #32 — Default: fetch events
     const range = (intent && intent.range) ? intent.range : 'week';
     
     addTypingIndicator('📅 Loading your calendar...');
@@ -1837,7 +1993,7 @@ function toggleTheme() {
 })();
 
 // ============================================================================
-// SEND MESSAGE — with Gmail + Calendar routing — #24-#28 #32
+// SEND MESSAGE — with Gmail + Calendar routing — #24-#28 #32 #33
 // ============================================================================
 
 async function sendMessage() {
@@ -1856,9 +2012,7 @@ async function sendMessage() {
         return;
     }
 
-    // Calendar routing — #32
-    // In Calendar mode: ALL messages go through Calendar pipeline (force routing)
-    // In other modes: only route if intent regex matches
+    // Calendar routing — #32 + #33
     const shouldRouteToCalendar = (currentMode === 'calendar') || detectCalendarIntent(message);
     if (message && shouldRouteToCalendar) {
         input.value = '';
