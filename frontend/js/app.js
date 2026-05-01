@@ -1259,7 +1259,53 @@ async function handleCalendarMessageWithIntent(message, action, params) {
         return;
     }
     
-    // Anything else (ask_about_calendar, etc.) → fall back to regex handler
+    // ====== #36 — ask_about_calendar (AI reasoning) ======
+    // The classifier routes reasoning questions ("am I overbooked?",
+    // "how's my week?", "kal busy hu kya?", "when can I do deep work?") here.
+    // We hit /api/v1/calendar/analyze which runs the full reasoning pipeline:
+    // fetch events → compute structural facts → Groq advisor → prose response.
+    // The response is streamed into chat as a normal assistant message for a
+    // conversational feel — no card UI, no structured table, just insight.
+    if (action === 'ask_about_calendar') {
+        const range = params.range || 'week';
+        const question = params.raw_query || message;
+        
+        addTypingIndicator('🧠 Analyzing your schedule...');
+        
+        try {
+            const response = await authFetch('/api/v1/calendar/analyze', {
+                method: 'POST',
+                body: JSON.stringify({
+                    question: question,
+                    range: range,
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata'
+                })
+            });
+            
+            removeTypingIndicator();
+            
+            if (response.ok) {
+                const data = await response.json();
+                // Stream the advisor's prose into chat as a normal assistant message.
+                // streamAssistantMessage gives us the typewriter effect — feels
+                // conversational, exactly the vibe we want for AI reasoning.
+                streamAssistantMessage(data.response || 'I could not analyze your schedule right now.');
+            } else {
+                let errMsg = 'Could not analyze your calendar.';
+                try {
+                    const errData = await response.json();
+                    if (errData.detail) errMsg = errData.detail;
+                } catch (e) { /* swallow JSON parse errors */ }
+                addAssistantMessage('❌ ' + errMsg);
+            }
+        } catch (e) {
+            removeTypingIndicator();
+            addAssistantMessage('❌ Calendar analysis error: ' + e.message);
+        }
+        return;
+    }
+    
+    // Anything else → fall back to regex handler
     await handleCalendarMessage(message);
 }
 
@@ -2783,7 +2829,8 @@ async function sendMessage() {
     }
 }
 
-// ============================================================================
+// ============================================
+
 // REGENERATE RESPONSE
 // ============================================================================
 
