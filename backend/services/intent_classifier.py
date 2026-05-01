@@ -1,5 +1,5 @@
 """
-OmniAI Intent Classifier (Task #33.5)
+OmniAI Intent Classifier (Task #33.5, refined for #36)
 
 Uses Groq Llama 3.3 70B to classify user message intent into structured JSON.
 Replaces brittle regex with AI-powered understanding that handles:
@@ -9,6 +9,10 @@ Replaces brittle regex with AI-powered understanding that handles:
 - Param extraction (duration, dates, emails, etc.)
 
 The frontend retains regex detection as a fallback when AI is uncertain or unavailable.
+
+#36 update: ask_about_calendar action description and examples expanded so the
+classifier reliably distinguishes "show me events" (raw card list) from
+"reason about my schedule" (prose insight from the AI advisor).
 """
 
 import os
@@ -39,16 +43,21 @@ Domain "gmail" — actions:
 - "ask_about_emails" — AI reasoning over emails ("any urgent emails?", "what action items?", "kaun ne reply nahi kiya?", "summarize my inbox")
 
 Domain "calendar" — actions:
-- "show_events" — view scheduled events ("what's on tomorrow?", "kal ka schedule", "this week's meetings")
+- "show_events" — JUST list/view events as cards. Use ONLY when user clearly wants the raw event list ("show my events", "list tomorrow's meetings", "kal ka schedule dikhao", "what events do I have today")
 - "find_free_slots" — find open time ("when am I free?", "got any time tomorrow?", "suggest a meeting time", "kal free hu kya?", "find a 30 min slot")
 - "create_event" — book new event ("book meeting tomorrow 3pm", "schedule call with Priya Friday", "block my calendar Tuesday afternoon")
-- "ask_about_calendar" — AI reasoning ("am I overbooked?", "busy day kal?")
+- "ask_about_calendar" — AI reasoning, advice, or analysis about the schedule. Use whenever the user wants insight rather than a raw list. Includes overload checks, finding deep-work windows, density questions, planning advice, "what does my X look like" type questions, comparisons across days, or any open-ended calendar reflection. Examples: "am I overbooked tomorrow?", "how's my week looking?", "kaisa hai kal ka schedule?", "when can I do focused work?", "is Friday light enough to take off?", "kal busy hu kya?", "do I have time for deep work?", "what's my day like tomorrow?", "is my Tuesday packed?", "give me a summary of this week"
 
 Domain "code" — actions:
 - "execute_code" — run Python code ("run this", "execute: print(1+1)", code blocks)
 
 Domain "general" — actions:
 - "chat" — anything else (greetings, general questions, normal AI chat)
+
+DISAMBIGUATION RULE — show_events vs ask_about_calendar:
+If the user is asking for raw data (list, view, show) → show_events.
+If the user is asking for understanding, advice, summary, or reflection → ask_about_calendar.
+When in doubt and the user used phrases like "how's", "what's it like", "am I", "can I", "is X", "kaisa hai", lean toward ask_about_calendar.
 
 PARAM EXTRACTION RULES:
 
@@ -72,6 +81,7 @@ For "send_email":
 
 For "ask_about_emails" / "ask_about_calendar":
 - "raw_query": original message (passed to deeper AI handler)
+- "range": "today" | "tomorrow" | "week" | "month" | null  (extract if mentioned, else null)
 
 For all: include "confidence" 0.0 to 1.0 (be honest, use <0.7 when ambiguous)
 
@@ -100,6 +110,24 @@ User: "what's on my calendar this week?"
 
 User: "block Friday afternoon for deep work"
 → {"domain":"calendar","action":"create_event","params":{"title":"Deep work","datetime_hint":"Friday afternoon","duration_minutes":120,"add_meet":false},"confidence":0.85}
+
+User: "how's my week looking?"
+→ {"domain":"calendar","action":"ask_about_calendar","params":{"raw_query":"how's my week looking?","range":"week"},"confidence":0.92}
+
+User: "am I overbooked tomorrow?"
+→ {"domain":"calendar","action":"ask_about_calendar","params":{"raw_query":"am I overbooked tomorrow?","range":"tomorrow"},"confidence":0.95}
+
+User: "kaisa hai kal ka schedule, busy hu kya?"
+→ {"domain":"calendar","action":"ask_about_calendar","params":{"raw_query":"kaisa hai kal ka schedule, busy hu kya?","range":"tomorrow"},"confidence":0.9}
+
+User: "when can I do deep work this week?"
+→ {"domain":"calendar","action":"ask_about_calendar","params":{"raw_query":"when can I do deep work this week?","range":"week"},"confidence":0.9}
+
+User: "is Friday light enough for me to take off?"
+→ {"domain":"calendar","action":"ask_about_calendar","params":{"raw_query":"is Friday light enough for me to take off?","range":"week"},"confidence":0.85}
+
+User: "give me a summary of my day"
+→ {"domain":"calendar","action":"ask_about_calendar","params":{"raw_query":"give me a summary of my day","range":"today"},"confidence":0.88}
 
 User: "run this: print('hello')"
 → {"domain":"code","action":"execute_code","params":{},"confidence":0.95}

@@ -1,7 +1,7 @@
 """
 OmniAI Calendar API Router
 Handles Google Calendar OAuth (#29), event read (#30), event create (#31),
-free-slot suggestions (#33), and conflict detection (#35).
+free-slot suggestions (#33), conflict detection (#35), and AI reasoning (#36).
 """
 
 import json
@@ -20,6 +20,7 @@ from services.calendar_service import (
     create_event,
     find_free_slots,
     check_conflicts,
+    analyze_calendar,
 )
 from database.database import get_db
 
@@ -51,6 +52,22 @@ class CheckConflictsRequest(BaseModel):
     start: str
     end: str
     exclude_event_id: Optional[str] = None
+    timezone: str = "Asia/Kolkata"
+
+
+class AnalyzeCalendarRequest(BaseModel):
+    """
+    #36 — Calendar AI reasoning request body.
+
+    Frontend POSTs this when the classifier returns action='ask_about_calendar'.
+    Backend pulls the user's events for the given range, computes structural
+    facts, and hands the whole bundle to Groq with the calendar-advisor prompt.
+    Returns prose insight + the raw facts.
+    """
+    question: str
+    range: Optional[str] = "week"  # today | tomorrow | week | month
+    start: Optional[str] = None    # optional explicit ISO override
+    end: Optional[str] = None      # optional explicit ISO override
     timezone: str = "Asia/Kolkata"
 
 
@@ -468,4 +485,76 @@ async def check_event_conflicts(
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         logger.error(f"Error checking conflicts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# #36 — AI Calendar Reasoning Endpoint
+# ============================================================
+
+@router.post("/analyze")
+async def analyze_user_calendar(
+    request: Request,
+    body: AnalyzeCalendarRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Calendar AI reasoning. The classifier (#33.5) routes ask_about_calendar
+    intents here — questions like "am I overbooked?", "how's my week?",
+    "when can I do deep work?", "kal busy hu kya?".
+
+    The pipeline:
+      1. Fetch the user's events for the range
+      2. Compute structural facts (gaps, density, back-to-back streaks,
+         longest free window, per-day breakdown)
+      3. Send everything to Groq Llama 3.3 70B with the calendar-advisor prompt
+      4. Return prose insight + the raw facts (so the frontend can also show
+         structured stats if it wants)
+
+    On Groq failure, returns a deterministic fallback summary so the user
+    never sees a 500 — they get useful info either way.
+
+    Body:
+        question: User's natural-language question
+        range:    "today" | "tomorrow" | "week" | "month" (default "week")
+        start, end: optional explicit ISO range (overrides range)
+        timezone: defaults to Asia/Kolkata
+
+    Returns:
+        {
+          "response": str,        # AI advisor prose
+          "facts": dict,          # structural facts
+          "events_count": int,
+          "range": str
+        }
+    """
+    user_id = await get_user_id(request, db)
+    tokens = await get_calendar_tokens(user_id, db)
+
+    # Validate range value
+    valid_ranges = ("today", "tomorrow", "week", "month")
+    range_label = body.range if body.range in valid_ranges else "week"
+
+    # Question is required and shouldn't be empty
+    question = (body.question or "").strip()
+    if not question:
+        raise HTTPException(
+            status_code=400,
+            detail="Field 'question' is required and cannot be empty."
+        )
+
+    try:
+        result = await analyze_calendar(
+            tokens,
+            question=question,
+            range_label=range_label,
+            time_min=body.start,
+            time_max=body.end,
+            timezone_str=body.timezone
+        )
+        return result
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error in analyze_user_calendar: {e}")
         raise HTTPException(status_code=500, detail=str(e))
