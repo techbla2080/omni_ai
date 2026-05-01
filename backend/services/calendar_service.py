@@ -1,12 +1,13 @@
 """
 OmniAI Calendar Service
 Handles OAuth2 flow and Google Calendar API calls.
-Includes: OAuth (#29), event read (#30), event create (#31), free slots (#33).
+Includes: OAuth (#29), event read (#30), event create (#31), free slots (#33),
+conflict detection (#35).
 """
 
 import os
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
@@ -133,23 +134,23 @@ def get_user_email(token_data: Dict[str, Any]) -> str:
     return ""
 
 
-def fetch_events(token_data: Dict[str, Any], 
-                  time_min: str = None, 
-                  time_max: str = None, 
+def fetch_events(token_data: Dict[str, Any],
+                  time_min: str = None,
+                  time_max: str = None,
                   max_results: int = 20) -> list:
     """
     Fetch calendar events from the user's primary calendar.
     Returns normalized list of event dicts.
     """
     from datetime import datetime, timedelta, timezone
-    
+
     service = get_calendar_service(token_data)
-    
+
     if not time_min:
         time_min = datetime.now(timezone.utc).isoformat()
     if not time_max:
         time_max = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
-    
+
     try:
         events_result = service.events().list(
             calendarId='primary',
@@ -159,18 +160,18 @@ def fetch_events(token_data: Dict[str, Any],
             singleEvents=True,
             orderBy='startTime'
         ).execute()
-        
+
         events = events_result.get('items', [])
-        
+
         normalized = []
         for event in events:
             start = event.get('start', {})
             end = event.get('end', {})
-            
+
             is_all_day = 'date' in start
             start_time = start.get('dateTime') or start.get('date', '')
             end_time = end.get('dateTime') or end.get('date', '')
-            
+
             attendees_list = []
             for attendee in event.get('attendees', []):
                 attendees_list.append({
@@ -179,7 +180,7 @@ def fetch_events(token_data: Dict[str, Any],
                     'response': attendee.get('responseStatus', 'needsAction'),
                     'is_organizer': attendee.get('organizer', False)
                 })
-            
+
             meet_link = None
             conference = event.get('conferenceData', {})
             if conference:
@@ -187,7 +188,7 @@ def fetch_events(token_data: Dict[str, Any],
                     if entry.get('entryPointType') == 'video':
                         meet_link = entry.get('uri')
                         break
-            
+
             normalized.append({
                 'id': event.get('id', ''),
                 'summary': event.get('summary', '(no title)'),
@@ -204,9 +205,9 @@ def fetch_events(token_data: Dict[str, Any],
                 'created': event.get('created', ''),
                 'updated': event.get('updated', '')
             })
-        
+
         return normalized
-        
+
     except HttpError as e:
         logger.error(f"Calendar API error in fetch_events: {e}")
         raise
@@ -215,10 +216,10 @@ def fetch_events(token_data: Dict[str, Any],
 def get_events_count_for_range(token_data: Dict[str, Any], days: int = 7) -> int:
     """Quick helper: count of events in the next N days"""
     from datetime import datetime, timedelta, timezone
-    
+
     time_min = datetime.now(timezone.utc).isoformat()
     time_max = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
-    
+
     try:
         events = fetch_events(token_data, time_min=time_min, time_max=time_max, max_results=50)
         return len(events)
@@ -320,7 +321,7 @@ def find_free_slots(token_data: Dict[str, Any],
     """
     Find free time slots in the user's calendar within a given range.
     Scans 24/7 — no working hours imposed.
-    
+
     Args:
         token_data: OAuth tokens
         time_min: ISO 8601 range start (e.g., "2026-04-25T00:00:00+05:30")
@@ -328,19 +329,19 @@ def find_free_slots(token_data: Dict[str, Any],
         duration_minutes: Required slot length in minutes (default 30)
         max_suggestions: Max number of free slots to return
         timezone_str: Timezone for display
-    
+
     Returns:
         List of free slot dicts: [{start, end, duration_minutes, day_label}, ...]
     """
     from datetime import datetime, timedelta
-    
+
     # Fetch events in the range
     try:
         events = fetch_events(token_data, time_min=time_min, time_max=time_max, max_results=50)
     except Exception as e:
         logger.error(f"Error fetching events for free slots: {e}")
         raise
-    
+
     # Parse range start/end
     try:
         range_start = datetime.fromisoformat(time_min.replace('Z', '+00:00'))
@@ -348,7 +349,7 @@ def find_free_slots(token_data: Dict[str, Any],
     except Exception as e:
         logger.error(f"Error parsing time range: {e}")
         raise ValueError(f"Invalid time range: {e}")
-    
+
     # Build a list of busy intervals (skip all-day events for slot finding)
     busy_intervals = []
     for ev in events:
@@ -360,7 +361,7 @@ def find_free_slots(token_data: Dict[str, Any],
             busy_intervals.append((start, end))
         except Exception:
             continue
-    
+
     # Sort and merge overlapping intervals
     busy_intervals.sort(key=lambda x: x[0])
     merged_busy = []
@@ -369,12 +370,12 @@ def find_free_slots(token_data: Dict[str, Any],
             merged_busy[-1] = (merged_busy[-1][0], max(merged_busy[-1][1], interval[1]))
         else:
             merged_busy.append(interval)
-    
+
     # Find gaps between busy intervals (= free slots)
     free_slots = []
     cursor = range_start
     duration_delta = timedelta(minutes=duration_minutes)
-    
+
     for busy_start, busy_end in merged_busy:
         # Gap between cursor and the next busy interval
         if busy_start > cursor:
@@ -382,19 +383,19 @@ def find_free_slots(token_data: Dict[str, Any],
             if gap_duration >= duration_delta:
                 free_slots.append((cursor, busy_start))
         cursor = max(cursor, busy_end)
-    
+
     # Final gap from cursor to range_end
     if range_end > cursor:
         gap_duration = range_end - cursor
         if gap_duration >= duration_delta:
             free_slots.append((cursor, range_end))
-    
+
     # Format slots — split large gaps into rounded suggestion blocks
     suggestions = []
     for slot_start, slot_end in free_slots:
         if len(suggestions) >= max_suggestions:
             break
-        
+
         # Round to next 15-min boundary
         minute = slot_start.minute
         rounded_minute = ((minute + 14) // 15) * 15
@@ -402,14 +403,14 @@ def find_free_slots(token_data: Dict[str, Any],
             rounded_start = slot_start.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
         else:
             rounded_start = slot_start.replace(minute=rounded_minute, second=0, microsecond=0)
-        
+
         # If the rounded start + duration fits in the slot, suggest it
         if rounded_start + duration_delta <= slot_end:
             suggested_end = rounded_start + duration_delta
             day_label = rounded_start.strftime('%a, %b %d')
             time_label = rounded_start.strftime('%I:%M %p').lstrip('0')
             end_label = suggested_end.strftime('%I:%M %p').lstrip('0')
-            
+
             suggestions.append({
                 'start': rounded_start.isoformat(),
                 'end': suggested_end.isoformat(),
@@ -419,5 +420,143 @@ def find_free_slots(token_data: Dict[str, Any],
                 'end_time_label': end_label,
                 'display': f"{day_label} · {time_label} – {end_label}"
             })
-    
+
     return suggestions
+
+
+# ============================================================
+# #35 — Conflict Detection
+# ============================================================
+
+def check_conflicts(token_data: Dict[str, Any],
+                     start: str,
+                     end: str,
+                     exclude_event_id: Optional[str] = None,
+                     timezone_str: str = "Asia/Kolkata") -> List[Dict[str, Any]]:
+    """
+    Check for events that overlap with the given time window.
+
+    Two intervals A and B overlap if and only if:
+        A.start < B.end AND A.end > B.start
+
+    This catches all overlap cases: full overlap, partial overlap on either side,
+    and one event fully containing the other.
+
+    All-day events are skipped — they would conflict with everything on that day,
+    which is rarely the user's intent when scheduling a timed event.
+
+    Args:
+        token_data: OAuth tokens
+        start: ISO 8601 start time of the proposed new event
+        end: ISO 8601 end time of the proposed new event
+        exclude_event_id: Optional event ID to exclude from conflict check.
+                          Use this when EDITING an existing event so it doesn't
+                          conflict with itself.
+        timezone_str: Timezone (currently unused — kept for API consistency
+                      with create_event)
+
+    Returns:
+        List of conflicting event dicts. Empty list = no conflicts (safe to create).
+        Each conflict dict contains:
+            - id: Google Calendar event ID
+            - summary: event title
+            - start: ISO 8601 start
+            - end: ISO 8601 end
+            - location: event location (may be empty)
+            - html_link: link to open the event in Google Calendar
+            - overlap_type: 'full' | 'partial_start' | 'partial_end' | 'contains' | 'contained'
+    """
+    from datetime import datetime, timedelta
+
+    # Parse the proposed new event window
+    try:
+        new_start = datetime.fromisoformat(start.replace('Z', '+00:00'))
+        new_end = datetime.fromisoformat(end.replace('Z', '+00:00'))
+    except Exception as e:
+        logger.error(f"Error parsing proposed event time: {e}")
+        raise ValueError(f"Invalid start/end time: {e}")
+
+    if new_end <= new_start:
+        raise ValueError("Event end time must be after start time")
+
+    # Fetch events with a small buffer on either side, so we catch events that
+    # start before our window or end after our window
+    buffer = timedelta(hours=1)
+    fetch_min = (new_start - buffer).isoformat()
+    fetch_max = (new_end + buffer).isoformat()
+
+    try:
+        events = fetch_events(
+            token_data,
+            time_min=fetch_min,
+            time_max=fetch_max,
+            max_results=50
+        )
+    except Exception as e:
+        logger.error(f"Error fetching events for conflict check: {e}")
+        raise
+
+    conflicts = []
+    for ev in events:
+        # Skip all-day events — they should not block timed scheduling
+        if ev.get('is_all_day'):
+            continue
+
+        # Skip the excluded event (used when editing)
+        if exclude_event_id and ev.get('id') == exclude_event_id:
+            continue
+
+        # Skip cancelled events
+        if ev.get('status') == 'cancelled':
+            continue
+
+        # Parse this event's window
+        try:
+            ev_start = datetime.fromisoformat(ev['start'].replace('Z', '+00:00'))
+            ev_end = datetime.fromisoformat(ev['end'].replace('Z', '+00:00'))
+        except Exception:
+            # Skip events with unparseable times rather than crash
+            continue
+
+        # The overlap rule: new_start < ev_end AND new_end > ev_start
+        if new_start < ev_end and new_end > ev_start:
+            # Classify the type of overlap for richer UI later
+            if new_start <= ev_start and new_end >= ev_end:
+                overlap_type = 'contains'  # new event fully contains existing
+            elif ev_start <= new_start and ev_end >= new_end:
+                overlap_type = 'contained'  # new event sits fully inside existing
+            elif new_start < ev_start:
+                overlap_type = 'partial_start'  # new event overlaps the start of existing
+            elif new_end > ev_end:
+                overlap_type = 'partial_end'  # new event overlaps the end of existing
+            else:
+                overlap_type = 'full'  # exact match (should be rare)
+
+            # Format human-readable labels for the frontend
+            day_label = ev_start.strftime('%a, %b %d')
+            time_label = ev_start.strftime('%I:%M %p').lstrip('0')
+            end_time_label = ev_end.strftime('%I:%M %p').lstrip('0')
+
+            conflicts.append({
+                'id': ev.get('id', ''),
+                'summary': ev.get('summary', '(no title)'),
+                'start': ev['start'],
+                'end': ev['end'],
+                'location': ev.get('location', ''),
+                'html_link': ev.get('html_link', ''),
+                'overlap_type': overlap_type,
+                'day_label': day_label,
+                'time_label': time_label,
+                'end_time_label': end_time_label,
+                'display': f"{day_label} · {time_label} – {end_time_label}"
+            })
+
+    # Sort conflicts by start time so the UI shows them in order
+    conflicts.sort(key=lambda c: c['start'])
+
+    logger.info(
+        f"Conflict check: window {start} → {end}, "
+        f"found {len(conflicts)} conflict(s)"
+    )
+
+    return conflicts

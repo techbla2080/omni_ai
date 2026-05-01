@@ -1,7 +1,7 @@
 """
 OmniAI Calendar API Router
 Handles Google Calendar OAuth (#29), event read (#30), event create (#31),
-and free-slot suggestions (#33).
+free-slot suggestions (#33), and conflict detection (#35).
 """
 
 import json
@@ -19,6 +19,7 @@ from services.calendar_service import (
     fetch_events,
     create_event,
     find_free_slots,
+    check_conflicts,
 )
 from database.database import get_db
 
@@ -37,6 +38,19 @@ class CreateEventRequest(BaseModel):
     location: Optional[str] = None
     attendees: Optional[List[str]] = None
     add_meet: bool = False
+    timezone: str = "Asia/Kolkata"
+    # #35 — When False (default), the create endpoint will check for overlapping
+    # events first and return 409 Conflict if any are found. Set to True to
+    # bypass the check and create the event anyway (e.g., user clicked
+    # "Create anyway" on the conflict warning modal).
+    force_create: bool = False
+
+
+class CheckConflictsRequest(BaseModel):
+    """#35 — Lets the frontend preview conflicts before attempting to create."""
+    start: str
+    end: str
+    exclude_event_id: Optional[str] = None
     timezone: str = "Asia/Kolkata"
 
 
@@ -246,7 +260,7 @@ async def get_events(
 
 
 # ============================================================
-# #31 — Event Creation Endpoint
+# #31 — Event Creation Endpoint  (with #35 conflict detection)
 # ============================================================
 
 @router.post("/events")
@@ -255,10 +269,57 @@ async def create_calendar_event(
     body: CreateEventRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    """Create a new calendar event"""
+    """
+    Create a new calendar event.
+
+    #35 — If `force_create` is False (default) and the proposed time window
+    overlaps with one or more existing events, this endpoint returns
+    HTTP 409 Conflict with a `conflicts` list describing the overlapping events.
+    The frontend should show a warning UI; if the user chooses to proceed,
+    re-call this endpoint with the same payload plus `force_create=true`.
+    """
     user_id = await get_user_id(request, db)
     tokens = await get_calendar_tokens(user_id, db)
 
+    # ---------- #35 — Conflict pre-check ----------
+    if not body.force_create:
+        try:
+            conflicts = check_conflicts(
+                tokens,
+                start=body.start,
+                end=body.end,
+                timezone_str=body.timezone
+            )
+        except ValueError as ve:
+            # Bad input (e.g., end before start, invalid ISO time)
+            raise HTTPException(status_code=400, detail=str(ve))
+        except Exception as e:
+            # Don't block event creation if the conflict check itself fails
+            # — log it and continue. Better to risk a duplicate than silently
+            # refuse to create the event for an unrelated reason.
+            logger.error(f"Conflict check failed (continuing anyway): {e}")
+            conflicts = []
+
+        if conflicts:
+            logger.info(
+                f"Blocking event creation due to {len(conflicts)} conflict(s); "
+                f"frontend should show warning to user {user_id}"
+            )
+            # 409 Conflict — semantically correct status code for this case
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": f"Found {len(conflicts)} conflicting event(s)",
+                    "conflicts": conflicts,
+                    "proposed": {
+                        "summary": body.summary,
+                        "start": body.start,
+                        "end": body.end
+                    }
+                }
+            )
+
+    # ---------- Create the event ----------
     try:
         event = create_event(
             tokens,
@@ -271,7 +332,11 @@ async def create_calendar_event(
             add_meet=body.add_meet,
             timezone_str=body.timezone
         )
-        return {"success": True, "event": event}
+        return {
+            "success": True,
+            "event": event,
+            "force_created": body.force_create
+        }
     except Exception as e:
         logger.error(f"Error creating event: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -347,4 +412,60 @@ async def get_free_slots(
         }
     except Exception as e:
         logger.error(f"Error finding free slots: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# #35 — Conflict Detection Endpoint
+# ============================================================
+
+@router.post("/check-conflicts")
+async def check_event_conflicts(
+    request: Request,
+    body: CheckConflictsRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Preview conflicts for a proposed event time window WITHOUT creating anything.
+
+    Used by the frontend to show a warning modal before the user commits to
+    creating an event. The `POST /events` endpoint also runs this check
+    internally — this endpoint exists so the frontend can preview conflicts
+    proactively (e.g., the moment the user finishes choosing a time, before
+    they hit "Create").
+
+    Body:
+        start: ISO 8601 start time of the proposed event
+        end:   ISO 8601 end time of the proposed event
+        exclude_event_id: optional — when editing an existing event, pass its
+                          ID so it isn't flagged as conflicting with itself
+        timezone: defaults to Asia/Kolkata
+
+    Returns:
+        {
+          "has_conflicts": bool,
+          "count": int,
+          "conflicts": [...]  # see services.calendar_service.check_conflicts
+        }
+    """
+    user_id = await get_user_id(request, db)
+    tokens = await get_calendar_tokens(user_id, db)
+
+    try:
+        conflicts = check_conflicts(
+            tokens,
+            start=body.start,
+            end=body.end,
+            exclude_event_id=body.exclude_event_id,
+            timezone_str=body.timezone
+        )
+        return {
+            "has_conflicts": len(conflicts) > 0,
+            "count": len(conflicts),
+            "conflicts": conflicts
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error checking conflicts: {e}")
         raise HTTPException(status_code=500, detail=str(e))
