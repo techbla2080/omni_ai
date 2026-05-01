@@ -627,19 +627,20 @@ async function bookSlot(start, end, button) {
     button.disabled = true;
     button.textContent = '⏳ Booking...';
     
-    try {
-        const response = await authFetch('/api/v1/calendar/events', {
-            method: 'POST',
-            body: JSON.stringify({
-                summary: title,
-                start: start,
-                end: end,
-                add_meet: true
-            })
-        });
-        const data = await response.json();
-        
-        if (response.ok && data.success) {
+    // #35 — Free slots are pre-checked for emptiness, so conflict check is
+    // unlikely to find anything, but we still pass through the same path
+    // for consistency. If for some reason a conflict appears (e.g., user
+    // booked from another tab between the slot search and this click),
+    // the modal will show.
+    const eventPayload = {
+        summary: title,
+        start: start,
+        end: end,
+        add_meet: true
+    };
+    
+    const result = await attemptCreateEventWithConflictCheck(eventPayload, {
+        onSuccess: (ev) => {
             button.textContent = '✅ Booked!';
             button.classList.add('booked');
             const card = button.closest('.slot-card');
@@ -648,7 +649,6 @@ async function bookSlot(start, end, button) {
                 card.classList.add('slot-booked');
             }
             
-            const ev = data.event || {};
             let confirmText = `✅ Booked "${escapeHtml(title)}"`;
             if (ev.html_link) {
                 confirmText += ` — <a href="${ev.html_link}" target="_blank" class="event-cal-link">View in Calendar →</a>`;
@@ -657,16 +657,17 @@ async function bookSlot(start, end, button) {
                 confirmText += `<br/>📹 <a href="${ev.meet_link}" target="_blank" class="event-cal-link">${escapeHtml(ev.meet_link)}</a>`;
             }
             addAssistantMessage(confirmText, null, true);
-        } else {
+        },
+        onCancel: () => {
             button.disabled = false;
             button.textContent = originalText;
-            alert('Failed to book: ' + (data.detail || 'Unknown error'));
+        },
+        onError: (errMsg) => {
+            button.disabled = false;
+            button.textContent = originalText;
+            alert('Failed to book: ' + errMsg);
         }
-    } catch (e) {
-        button.disabled = false;
-        button.textContent = originalText;
-        alert('Error: ' + e.message);
-    }
+    });
 }
 
 async function handleCalendarMessage(message) {
@@ -716,6 +717,393 @@ async function handleCalendarMessage(message) {
         removeTypingIndicator();
         addAssistantMessage('❌ Calendar error: ' + e.message);
         return true;
+    }
+}
+
+// ============================================================================
+// #35 — CONFLICT-AWARE EVENT CREATION
+// Centralised create-event flow that runs the conflict pre-check, shows
+// the warning modal if conflicts exist, and creates the event (with
+// force_create=true) when the user confirms.
+// ============================================================================
+
+/**
+ * Attempt to create a calendar event, with automatic conflict detection.
+ *
+ * @param {Object} eventPayload - same shape as POST /api/v1/calendar/events body
+ *                                (summary, start, end, description?, location?,
+ *                                 attendees?, add_meet?, timezone?)
+ * @param {Object} callbacks
+ *   @param {Function} callbacks.onSuccess - called with the created event object
+ *   @param {Function} callbacks.onCancel  - called when user cancels at the modal
+ *   @param {Function} callbacks.onError   - called with an error message string
+ */
+async function attemptCreateEventWithConflictCheck(eventPayload, callbacks) {
+    const { onSuccess, onCancel, onError } = callbacks || {};
+    
+    try {
+        // First attempt — without force_create, so the backend runs its
+        // pre-check and may return 409 with the conflicts list.
+        const response = await authFetch('/api/v1/calendar/events', {
+            method: 'POST',
+            body: JSON.stringify({
+                ...eventPayload,
+                force_create: false
+            })
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success && onSuccess) onSuccess(data.event || {});
+            return;
+        }
+        
+        if (response.status === 409) {
+            // Conflicts found — show modal, let user decide
+            const errBody = await response.json();
+            const detail = errBody.detail || {};
+            const conflicts = detail.conflicts || [];
+            const proposed = detail.proposed || {
+                summary: eventPayload.summary,
+                start: eventPayload.start,
+                end: eventPayload.end
+            };
+            
+            showConflictModal(conflicts, proposed, {
+                onConfirm: async () => {
+                    // User chose "Create anyway" — re-send with force_create=true
+                    try {
+                        const retryResponse = await authFetch('/api/v1/calendar/events', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                ...eventPayload,
+                                force_create: true
+                            })
+                        });
+                        if (retryResponse.ok) {
+                            const data = await retryResponse.json();
+                            if (data.success && onSuccess) onSuccess(data.event || {});
+                        } else {
+                            const errData = await retryResponse.json();
+                            if (onError) onError(errData.detail || 'Unknown error');
+                        }
+                    } catch (e) {
+                        if (onError) onError(e.message);
+                    }
+                },
+                onCancel: () => {
+                    addAssistantMessage('Event creation cancelled.');
+                    if (onCancel) onCancel();
+                }
+            });
+            return;
+        }
+        
+        // Some other non-OK status
+        const errData = await response.json().catch(() => ({}));
+        if (onError) onError(errData.detail || `Server returned ${response.status}`);
+        
+    } catch (e) {
+        if (onError) onError(e.message);
+    }
+}
+
+/**
+ * Render the conflict warning modal and wire up its buttons.
+ *
+ * Uses inline styles (cssText) so no styles.css change is required.
+ * Colors use existing CSS custom properties where available with
+ * sensible fallbacks for both dark and light mode.
+ */
+function showConflictModal(conflicts, proposed, callbacks) {
+    const { onConfirm, onCancel } = callbacks || {};
+    
+    // Remove any existing conflict modal so we never stack them
+    const existing = document.querySelector('.conflict-modal-overlay');
+    if (existing) existing.remove();
+    
+    // ----- Overlay (full-screen backdrop) -----
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay conflict-modal-overlay';
+    overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.55);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        padding: 16px;
+        animation: conflictFadeIn 0.18s ease-out;
+    `;
+    
+    // ----- Modal panel -----
+    const panel = document.createElement('div');
+    panel.className = 'conflict-modal-panel';
+    panel.style.cssText = `
+        background: var(--bg-secondary, #1a1a1a);
+        color: var(--text-primary, #f0f0f0);
+        border: 1px solid var(--border-primary, rgba(255, 255, 255, 0.08));
+        border-radius: 16px;
+        max-width: 520px;
+        width: 100%;
+        max-height: 85vh;
+        overflow-y: auto;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        animation: conflictSlideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    `;
+    
+    // ----- Header (warning icon + title) -----
+    const conflictWord = conflicts.length === 1 ? 'conflict' : 'conflicts';
+    const header = document.createElement('div');
+    header.style.cssText = `
+        padding: 24px 28px 16px;
+        border-bottom: 1px solid var(--border-primary, rgba(255, 255, 255, 0.06));
+    `;
+    header.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 8px;">
+            <div style="
+                width: 44px;
+                height: 44px;
+                border-radius: 50%;
+                background: rgba(255, 159, 64, 0.15);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 22px;
+                flex-shrink: 0;
+            ">⚠️</div>
+            <div>
+                <div style="font-size: 17px; font-weight: 600; line-height: 1.3;">
+                    Schedule ${conflictWord} found
+                </div>
+                <div style="font-size: 13.5px; opacity: 0.7; margin-top: 2px;">
+                    ${conflicts.length} existing event${conflicts.length === 1 ? '' : 's'} overlap${conflicts.length === 1 ? 's' : ''} with this time
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // ----- Proposed event block -----
+    const proposedBlock = document.createElement('div');
+    proposedBlock.style.cssText = `
+        padding: 18px 28px 14px;
+        border-bottom: 1px solid var(--border-primary, rgba(255, 255, 255, 0.06));
+    `;
+    
+    const proposedTimeDisplay = formatEventTimeDisplay(proposed.start, proposed.end);
+    proposedBlock.innerHTML = `
+        <div style="font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.55; margin-bottom: 8px;">
+            You're trying to create
+        </div>
+        <div style="
+            background: var(--bg-tertiary, rgba(255, 255, 255, 0.04));
+            border-radius: 10px;
+            padding: 12px 14px;
+        ">
+            <div style="font-size: 14.5px; font-weight: 600; margin-bottom: 4px;">
+                ${escapeHtml(proposed.summary || '(untitled event)')}
+            </div>
+            <div style="font-size: 12.5px; opacity: 0.75;">
+                🕐 ${escapeHtml(proposedTimeDisplay)}
+            </div>
+        </div>
+    `;
+    
+    // ----- Conflicts list -----
+    const conflictsBlock = document.createElement('div');
+    conflictsBlock.style.cssText = `
+        padding: 18px 28px;
+    `;
+    
+    let conflictsHTML = `
+        <div style="font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.55; margin-bottom: 10px;">
+            Conflicts with
+        </div>
+    `;
+    
+    conflicts.forEach((c, idx) => {
+        const overlapLabel = formatOverlapLabel(c.overlap_type);
+        const linkHTML = c.html_link
+            ? `<a href="${c.html_link}" target="_blank" rel="noopener" style="font-size: 12px; color: var(--accent-primary, #d97706); text-decoration: none; opacity: 0.85;">Open in Calendar →</a>`
+            : '';
+        const locationHTML = c.location
+            ? `<div style="font-size: 12px; opacity: 0.65; margin-top: 4px;">📍 ${escapeHtml(c.location)}</div>`
+            : '';
+        
+        conflictsHTML += `
+            <div style="
+                background: var(--bg-tertiary, rgba(255, 255, 255, 0.04));
+                border-left: 3px solid rgba(239, 68, 68, 0.7);
+                border-radius: 8px;
+                padding: 12px 14px;
+                margin-bottom: ${idx === conflicts.length - 1 ? '0' : '10px'};
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 4px;">
+                    <div style="font-size: 14px; font-weight: 600; line-height: 1.35; flex: 1;">
+                        ${escapeHtml(c.summary || '(no title)')}
+                    </div>
+                    ${linkHTML}
+                </div>
+                <div style="font-size: 12.5px; opacity: 0.75;">
+                    🕐 ${escapeHtml(c.display || `${c.start} → ${c.end}`)}
+                </div>
+                ${locationHTML}
+                <div style="font-size: 11px; opacity: 0.55; margin-top: 6px; font-style: italic;">
+                    ${overlapLabel}
+                </div>
+            </div>
+        `;
+    });
+    
+    conflictsBlock.innerHTML = conflictsHTML;
+    
+    // ----- Action buttons -----
+    const actions = document.createElement('div');
+    actions.style.cssText = `
+        padding: 18px 28px 24px;
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        border-top: 1px solid var(--border-primary, rgba(255, 255, 255, 0.06));
+        background: var(--bg-tertiary, rgba(255, 255, 255, 0.02));
+    `;
+    
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.className = 'conflict-cancel-btn';
+    cancelBtn.style.cssText = `
+        background: transparent;
+        color: var(--text-primary, #f0f0f0);
+        border: 1px solid var(--border-primary, rgba(255, 255, 255, 0.15));
+        padding: 9px 18px;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 500;
+        font-family: inherit;
+        cursor: pointer;
+        transition: background 0.15s ease, border-color 0.15s ease;
+    `;
+    cancelBtn.onmouseenter = () => {
+        cancelBtn.style.background = 'rgba(255, 255, 255, 0.06)';
+    };
+    cancelBtn.onmouseleave = () => {
+        cancelBtn.style.background = 'transparent';
+    };
+    
+    const confirmBtn = document.createElement('button');
+    confirmBtn.textContent = 'Create anyway';
+    confirmBtn.className = 'conflict-confirm-btn';
+    confirmBtn.style.cssText = `
+        background: var(--accent-primary, #d97706);
+        color: white;
+        border: none;
+        padding: 9px 18px;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+        transition: opacity 0.15s ease, transform 0.1s ease;
+    `;
+    confirmBtn.onmouseenter = () => {
+        confirmBtn.style.opacity = '0.9';
+    };
+    confirmBtn.onmouseleave = () => {
+        confirmBtn.style.opacity = '1';
+    };
+    
+    actions.appendChild(cancelBtn);
+    actions.appendChild(confirmBtn);
+    
+    // ----- Inject keyframe animations once -----
+    if (!document.getElementById('conflictModalKeyframes')) {
+        const styleTag = document.createElement('style');
+        styleTag.id = 'conflictModalKeyframes';
+        styleTag.textContent = `
+            @keyframes conflictFadeIn {
+                from { opacity: 0; }
+                to { opacity: 1; }
+            }
+            @keyframes conflictSlideUp {
+                from { opacity: 0; transform: translateY(12px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+        `;
+        document.head.appendChild(styleTag);
+    }
+    
+    // ----- Assemble -----
+    panel.appendChild(header);
+    panel.appendChild(proposedBlock);
+    panel.appendChild(conflictsBlock);
+    panel.appendChild(actions);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+    
+    // ----- Wire up dismiss handlers -----
+    const dismiss = (action) => {
+        overlay.remove();
+        if (action === 'confirm' && onConfirm) onConfirm();
+        else if (action === 'cancel' && onCancel) onCancel();
+    };
+    
+    cancelBtn.onclick = () => dismiss('cancel');
+    confirmBtn.onclick = () => dismiss('confirm');
+    
+    // Click on overlay (outside panel) → cancel
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) dismiss('cancel');
+    });
+    
+    // Focus the cancel button by default — safer choice on Enter key
+    setTimeout(() => cancelBtn.focus(), 50);
+}
+
+/**
+ * Helper: turn an overlap_type code into a user-friendly label.
+ */
+function formatOverlapLabel(overlapType) {
+    switch (overlapType) {
+        case 'contains':       return 'Your new event would fully contain this one';
+        case 'contained':      return 'Your new event sits entirely inside this one';
+        case 'partial_start':  return 'Your new event overlaps the start of this one';
+        case 'partial_end':    return 'Your new event overlaps the end of this one';
+        case 'full':           return 'Same time as this event';
+        default:               return 'Times overlap';
+    }
+}
+
+/**
+ * Helper: format a start/end ISO pair as "Fri, May 02 · 3:00 PM – 4:00 PM"
+ */
+function formatEventTimeDisplay(startStr, endStr) {
+    if (!startStr) return '';
+    try {
+        const start = new Date(startStr);
+        const end = endStr ? new Date(endStr) : null;
+        const dateLabel = start.toLocaleDateString('en-IN', {
+            weekday: 'short', month: 'short', day: 'numeric'
+        });
+        const startTime = start.toLocaleTimeString('en-IN', {
+            hour: 'numeric', minute: '2-digit', hour12: true
+        });
+        if (end) {
+            const endTime = end.toLocaleTimeString('en-IN', {
+                hour: 'numeric', minute: '2-digit', hour12: true
+            });
+            return `${dateLabel} · ${startTime} – ${endTime}`;
+        }
+        return `${dateLabel} · ${startTime}`;
+    } catch (e) {
+        return startStr;
     }
 }
 
@@ -815,7 +1203,63 @@ async function handleCalendarMessageWithIntent(message, action, params) {
         return;
     }
     
-    // create_event, ask_about_calendar, or anything else → fall back to regex handler
+    // ====== #35 — create_event with conflict pre-check ======
+    if (action === 'create_event') {
+        // Pull params from the AI classifier; bail out gracefully if any
+        // critical piece is missing (we don't want to silently create a
+        // bad event).
+        const summary = params.summary || params.title || 'New event';
+        const start = params.start;
+        const end = params.end;
+        
+        if (!start || !end) {
+            addAssistantMessage(
+                `I couldn't figure out the exact start/end time from your request. ` +
+                `Try something like *"block 3pm to 4pm tomorrow for gym"* with a clear time range.`
+            );
+            return;
+        }
+        
+        const eventPayload = {
+            summary: summary,
+            start: start,
+            end: end,
+            description: params.description || null,
+            location: params.location || null,
+            attendees: params.attendees || null,
+            add_meet: params.add_meet === true,
+            timezone: params.timezone || 'Asia/Kolkata'
+        };
+        
+        addTypingIndicator('📅 Checking for conflicts...');
+        
+        await attemptCreateEventWithConflictCheck(eventPayload, {
+            onSuccess: (ev) => {
+                removeTypingIndicator();
+                let confirmText = `✅ Created "${escapeHtml(summary)}"`;
+                const timeDisplay = formatEventTimeDisplay(ev.start || start, ev.end || end);
+                if (timeDisplay) confirmText += `<br/><span style="opacity:0.75; font-size:13px;">🕐 ${escapeHtml(timeDisplay)}</span>`;
+                if (ev.html_link) {
+                    confirmText += `<br/><a href="${ev.html_link}" target="_blank" class="event-cal-link">View in Calendar →</a>`;
+                }
+                if (ev.meet_link) {
+                    confirmText += `<br/>📹 <a href="${ev.meet_link}" target="_blank" class="event-cal-link">${escapeHtml(ev.meet_link)}</a>`;
+                }
+                addAssistantMessage(confirmText, null, true);
+            },
+            onCancel: () => {
+                removeTypingIndicator();
+                // Cancel message is added inside attemptCreateEventWithConflictCheck
+            },
+            onError: (errMsg) => {
+                removeTypingIndicator();
+                addAssistantMessage('❌ Could not create event: ' + escapeHtml(errMsg));
+            }
+        });
+        return;
+    }
+    
+    // Anything else (ask_about_calendar, etc.) → fall back to regex handler
     await handleCalendarMessage(message);
 }
 
