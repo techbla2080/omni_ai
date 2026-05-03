@@ -1,6 +1,6 @@
 """
 OmniAI Backend - v0.7.0
-Universal AI Interface with Chat, Files, Export, Auth, Gmail, Calendar, Intent Classifier
+Universal AI Interface with Chat, Files, Export, Auth, Gmail, Calendar, Intent Classifier, Settings
 """
 
 from fastapi import FastAPI, HTTPException, Request
@@ -23,6 +23,7 @@ from api.files import router as files_router
 from api.export import router as export_router
 from api.messages import router as messages_router
 from api.auth import router as auth_router
+from api.settings import router as settings_router  # #37 — Custom system prompts
 
 # Optional routers
 try:
@@ -104,6 +105,7 @@ if HAS_CODE_ROUTER:
 app.include_router(export_router)
 app.include_router(messages_router)
 app.include_router(auth_router)
+app.include_router(settings_router)  # #37 — Custom system prompts
 
 if HAS_GMAIL_ROUTER:
     app.include_router(gmail_router)
@@ -178,6 +180,7 @@ async def root():
             "Gmail Integration",
             "Google Calendar Integration",
             "AI Intent Classifier (multilingual)",
+            "Custom System Prompts",
         ],
         "timestamp": datetime.utcnow().isoformat()
     }

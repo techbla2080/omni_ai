@@ -1,9 +1,15 @@
 """
 Enhanced Chat API with Capability Detection + Conversation Persistence + Redis Context
 NOW WITH: Auto-generated titles, title editing, WEB SEARCH, SMART MODEL ROUTING, REGENERATION, STREAMING, FEEDBACK, FILE CONTEXT, AND AI MODE SYSTEM!
+
+#37 — Custom System Prompts (Pro feature):
+- Chat endpoints now extract user_id from JWT (was previously trusting body field)
+- build_system_prompt() accepts a custom_user_prompt that prepends to the mode prompt
+- Custom prompt is fetched from users.preferences->>'custom_system_prompt' on every chat
+- Applies across ALL modes (normal/email/calendar/code) — user's personality persists everywhere
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict
@@ -75,26 +81,104 @@ async def get_conversation_mode(db: AsyncSession, conversation_id: str) -> str:
     return "normal"
 
 
-def build_system_prompt(mode: str, file_context: str = "", search_context: str = "", conv_context: str = "") -> str:
-    """Build the full system prompt based on mode and available context"""
-    system_prompt = load_mode_prompt(mode)
+# ============================================================================
+# #37 — User Auth Helper + Custom System Prompt Loader
+# ============================================================================
 
+async def get_authenticated_user_id(request: Request, db: AsyncSession) -> Optional[str]:
+    """
+    Extract authenticated user_id from JWT in the Authorization header.
+    
+    Returns None if no token or invalid token — chat is allowed for anonymous
+    users too (legacy behavior preserved). Custom prompts only apply to
+    authenticated users since we need a user_id to look them up.
+    """
+    try:
+        from api.auth import get_current_user
+        user_id = await get_current_user(request, db)
+        return user_id
+    except Exception:
+        # No token or invalid — anonymous chat still allowed, just no custom prompt
+        return None
+
+
+async def get_user_custom_system_prompt(db: AsyncSession, user_id: Optional[str]) -> Optional[str]:
+    """
+    Fetch the user's custom system prompt from users.preferences JSON column.
+    
+    Stored at preferences.custom_system_prompt. Returns None if:
+    - user_id is None (anonymous)
+    - user not found
+    - no custom_system_prompt set
+    - empty string after stripping whitespace
+    """
+    if not user_id:
+        return None
+    
+    try:
+        result = await db.execute(
+            text("SELECT preferences FROM users WHERE id = :user_id"),
+            {"user_id": user_id}
+        )
+        row = result.fetchone()
+        if not row or not row[0]:
+            return None
+        
+        prefs = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+        custom_prompt = prefs.get("custom_system_prompt")
+        if custom_prompt and isinstance(custom_prompt, str):
+            stripped = custom_prompt.strip()
+            return stripped if stripped else None
+        return None
+    except Exception as e:
+        print(f"⚠️ Could not fetch user custom prompt: {e}")
+        return None
+
+
+def build_system_prompt(
+    mode: str,
+    file_context: str = "",
+    search_context: str = "",
+    conv_context: str = "",
+    custom_user_prompt: Optional[str] = None
+) -> str:
+    """
+    Build the full system prompt based on mode and available context.
+    
+    #37 — When the user has set a custom system prompt, it's prepended at the
+    very top so it influences ALL responses regardless of mode. The mode prompt
+    follows so users still get the focused behavior they expect when in
+    Email/Calendar/Code mode. The user's preferences win on style/tone, the
+    mode wins on capability focus.
+    """
+    parts = []
+    
+    # #37 — Custom user prompt takes top position so it influences all responses
+    if custom_user_prompt:
+        parts.append("--- USER'S PERSONAL PREFERENCES ---")
+        parts.append(custom_user_prompt)
+        parts.append("--- END USER PREFERENCES ---")
+        parts.append("")  # blank line for readability
+    
+    # Base mode prompt (normal/email/calendar/code)
+    parts.append(load_mode_prompt(mode))
+    
     if file_context:
-        system_prompt += "\n\n--- USER'S FILE CONTENT ---"
-        system_prompt += f"\n{file_context}"
-        system_prompt += "\n--- END FILE CONTENT ---"
-        system_prompt += "\n\nIMPORTANT: The user is asking about these files. Use this content to answer their question."
-
+        parts.append("\n--- USER'S FILE CONTENT ---")
+        parts.append(file_context)
+        parts.append("--- END FILE CONTENT ---")
+        parts.append("\nIMPORTANT: The user is asking about these files. Use this content to answer their question.")
+    
     if search_context:
-        system_prompt += "\n\n--- CURRENT WEB SEARCH RESULTS ---"
-        system_prompt += search_context
-        system_prompt += "\n--- END SEARCH RESULTS ---"
-        system_prompt += "\n\nIMPORTANT: Base your answer on these current search results."
-
+        parts.append("\n--- CURRENT WEB SEARCH RESULTS ---")
+        parts.append(search_context)
+        parts.append("--- END SEARCH RESULTS ---")
+        parts.append("\nIMPORTANT: Base your answer on these current search results.")
+    
     if conv_context:
-        system_prompt += f"\n\n--- CONVERSATION HISTORY ---\n{conv_context}"
-
-    return system_prompt
+        parts.append(f"\n--- CONVERSATION HISTORY ---\n{conv_context}")
+    
+    return "\n".join(parts)
 
 
 # ============================================================================
@@ -132,6 +216,7 @@ class ChatResponse(BaseModel):
     model_quality_score: Optional[int] = None
     files_used: Optional[int] = None
     mode: Optional[str] = None  # NEW
+    custom_prompt_applied: bool = False  # #37 — tells frontend whether to show badge
 
 
 class ConversationResponse(BaseModel):
@@ -439,7 +524,8 @@ async def get_conversation_messages(db: AsyncSession, conversation_id: str) -> L
 
 @router.post("/chat", response_model=ChatResponse)
 async def enhanced_chat(
-    request: ChatRequest,
+    chat_request: ChatRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -452,30 +538,39 @@ async def enhanced_chat(
     - WEB SEARCH for current information!
     - SMART MODEL ROUTING for optimal quality/speed!
     - FILE CONTEXT for document analysis!
-    - AI MODE SYSTEM for focused responses! ← NEW!
+    - AI MODE SYSTEM for focused responses!
+    - #37 — CUSTOM USER SYSTEM PROMPTS (Pro feature)
     """
 
     start_time = datetime.utcnow()
 
     try:
-        initial_mode = request.mode if request.mode in VALID_MODES else "normal"
+        # #37 — Get authenticated user from JWT (None if anonymous)
+        authenticated_user_id = await get_authenticated_user_id(request, db)
+        
+        # #37 — Fetch user's custom system prompt if logged in
+        custom_user_prompt = await get_user_custom_system_prompt(db, authenticated_user_id)
+        if custom_user_prompt:
+            print(f"✨ Custom prompt active for user {authenticated_user_id[:8]}... ({len(custom_user_prompt)} chars)")
+        
+        initial_mode = chat_request.mode if chat_request.mode in VALID_MODES else "normal"
 
         conversation_id, title, current_mode = await get_or_create_conversation(
             db,
-            request.conversation_id,
-            request.user_id,
-            request.message,
+            chat_request.conversation_id,
+            chat_request.user_id,
+            chat_request.message,
             initial_mode=initial_mode
         )
 
         # Save user message to database
-        await save_message(db, conversation_id, "user", request.message)
+        await save_message(db, conversation_id, "user", chat_request.message)
 
         # Cache message in Redis for context
-        context_manager.add_message(conversation_id, "user", request.message)
+        context_manager.add_message(conversation_id, "user", chat_request.message)
 
         # Check if this is a capability query
-        is_capability_query = detect_capability_query(request.message)
+        is_capability_query = detect_capability_query(chat_request.message)
 
         if is_capability_query:
             response_text = format_capability_response()
@@ -494,7 +589,8 @@ async def enhanced_chat(
                 capabilities=capabilities,
                 model="llama3.2:1b",
                 latency_ms=0,
-                mode=current_mode
+                mode=current_mode,
+                custom_prompt_applied=False  # capabilities are static, no LLM call
             )
 
         # ============================================
@@ -503,12 +599,12 @@ async def enhanced_chat(
         file_context = ""
         files_used = 0
 
-        if request.file_ids or detect_file_reference(request.message):
+        if chat_request.file_ids or detect_file_reference(chat_request.message):
             print(f"📎 File context requested")
 
             file_context = await file_context_service.get_file_context(
                 db=db,
-                file_ids=request.file_ids,
+                file_ids=chat_request.file_ids,
                 conversation_id=conversation_id
             )
 
@@ -523,10 +619,10 @@ async def enhanced_chat(
         search_performed = False
         search_results_count = 0
 
-        if web_search_service.should_search(request.message):
-            print(f"🔍 Web search triggered for: '{request.message}'")
+        if web_search_service.should_search(chat_request.message):
+            print(f"🔍 Web search triggered for: '{chat_request.message}'")
 
-            search_query = web_search_service.extract_search_query(request.message)
+            search_query = web_search_service.extract_search_query(chat_request.message)
             print(f"   Searching for: '{search_query}'")
 
             search_results = await web_search_service.search(
@@ -545,14 +641,15 @@ async def enhanced_chat(
         conv_context = context_manager.format_context_for_llm(conversation_id)
 
         # ============================================
-        # BUILD SYSTEM PROMPT BASED ON MODE — #25
+        # BUILD SYSTEM PROMPT — #25 mode + #37 custom prompt
         # ============================================
 
         system_prompt = build_system_prompt(
             mode=current_mode,
             file_context=file_context,
             search_context=search_context,
-            conv_context=conv_context
+            conv_context=conv_context,
+            custom_user_prompt=custom_user_prompt
         )
 
         print(f"🎯 Mode: {current_mode}")
@@ -562,7 +659,7 @@ async def enhanced_chat(
         # ============================================
 
         model_selection = model_router.choose_model(
-            query=request.message,
+            query=chat_request.message,
             has_search_results=search_performed,
             has_files=files_used > 0,
             context_length=len(system_prompt)
@@ -579,7 +676,7 @@ async def enhanced_chat(
         # ============================================
 
         ai_response = await llm_service.generate(
-            prompt=request.message,
+            prompt=chat_request.message,
             system_prompt=system_prompt,
             temperature=0.7,
             max_tokens=2000,
@@ -607,7 +704,8 @@ async def enhanced_chat(
             model_selection_reason=selection_reason,
             model_quality_score=model_selection['quality_score'],
             files_used=files_used,
-            mode=current_mode
+            mode=current_mode,
+            custom_prompt_applied=bool(custom_user_prompt)
         )
 
     except Exception as e:
@@ -621,43 +719,50 @@ async def enhanced_chat(
 
 
 # ============================================================================
-# STREAMING CHAT ENDPOINT — #15 Real token streaming + #25 Mode
+# STREAMING CHAT ENDPOINT — #15 Real token streaming + #25 Mode + #37 Custom prompt
 # ============================================================================
 
 @router.post("/chat/stream")
 async def stream_chat(
-    request: ChatRequest,
+    chat_request: ChatRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    """Streaming chat endpoint using Server-Sent Events with AI Mode support"""
+    """Streaming chat endpoint using Server-Sent Events with AI Mode + custom prompt support"""
+    
+    # #37 — Resolve auth + custom prompt OUTSIDE the generator so we don't lose
+    # the request/db context when the streaming response starts. Once we yield
+    # the first token, the request scope can begin tearing down.
+    authenticated_user_id = await get_authenticated_user_id(request, db)
+    custom_user_prompt = await get_user_custom_system_prompt(db, authenticated_user_id)
 
     async def generate():
         try:
-            initial_mode = request.mode if request.mode in VALID_MODES else "normal"
+            initial_mode = chat_request.mode if chat_request.mode in VALID_MODES else "normal"
 
             conversation_id, title, current_mode = await get_or_create_conversation(
                 db,
-                request.conversation_id,
-                request.user_id,
-                request.message,
+                chat_request.conversation_id,
+                chat_request.user_id,
+                chat_request.message,
                 initial_mode=initial_mode
             )
 
-            await save_message(db, conversation_id, "user", request.message)
-            context_manager.add_message(conversation_id, "user", request.message)
+            await save_message(db, conversation_id, "user", chat_request.message)
+            context_manager.add_message(conversation_id, "user", chat_request.message)
 
-            yield f"data: {json.dumps({'type': 'conversation_id', 'conversation_id': conversation_id, 'mode': current_mode})}\n\n"
+            yield f"data: {json.dumps({'type': 'conversation_id', 'conversation_id': conversation_id, 'mode': current_mode, 'custom_prompt_applied': bool(custom_user_prompt)})}\n\n"
 
             # FILE CONTEXT
             file_context = ""
             files_used = 0
 
-            if request.file_ids or detect_file_reference(request.message):
+            if chat_request.file_ids or detect_file_reference(chat_request.message):
                 yield f"data: {json.dumps({'type': 'status', 'message': 'Reading files...'})}\n\n"
 
                 file_context = await file_context_service.get_file_context(
                     db=db,
-                    file_ids=request.file_ids,
+                    file_ids=chat_request.file_ids,
                     conversation_id=conversation_id
                 )
 
@@ -669,10 +774,10 @@ async def stream_chat(
             search_context = ""
             search_performed = False
 
-            if web_search_service.should_search(request.message):
+            if web_search_service.should_search(chat_request.message):
                 yield f"data: {json.dumps({'type': 'status', 'message': 'Searching web...'})}\n\n"
 
-                search_query = web_search_service.extract_search_query(request.message)
+                search_query = web_search_service.extract_search_query(chat_request.message)
                 search_results = await web_search_service.search(search_query, count=5, freshness="pw")
 
                 if search_results.get("results"):
@@ -683,18 +788,21 @@ async def stream_chat(
 
             conv_context = context_manager.format_context_for_llm(conversation_id)
 
-            # BUILD SYSTEM PROMPT BASED ON MODE — #25
+            # BUILD SYSTEM PROMPT — #25 mode + #37 custom prompt
             system_prompt = build_system_prompt(
                 mode=current_mode,
                 file_context=file_context,
                 search_context=search_context,
-                conv_context=conv_context
+                conv_context=conv_context,
+                custom_user_prompt=custom_user_prompt
             )
 
             print(f"🎯 Stream mode: {current_mode}")
+            if custom_user_prompt:
+                print(f"✨ Custom prompt active in stream ({len(custom_user_prompt)} chars)")
 
             model_selection = model_router.choose_model(
-                query=request.message,
+                query=chat_request.message,
                 has_search_results=search_performed,
                 has_files=files_used > 0,
                 context_length=len(system_prompt)
@@ -707,7 +815,7 @@ async def stream_chat(
 
             full_response = ""
             async for token in llm_service.generate_stream(
-                prompt=request.message,
+                prompt=chat_request.message,
                 system_prompt=system_prompt,
                 temperature=0.7,
                 max_tokens=2000,
@@ -719,7 +827,7 @@ async def stream_chat(
             assistant_msg_id = await save_message(db, conversation_id, "assistant", full_response, chosen_model, 0)
             context_manager.add_message(conversation_id, "assistant", full_response)
 
-            yield f"data: {json.dumps({'type': 'done', 'full_response': full_response, 'files_used': files_used, 'message_id': assistant_msg_id, 'conversation_id': conversation_id, 'mode': current_mode})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'full_response': full_response, 'files_used': files_used, 'message_id': assistant_msg_id, 'conversation_id': conversation_id, 'mode': current_mode, 'custom_prompt_applied': bool(custom_user_prompt)})}\n\n"
 
         except Exception as e:
             print(f"❌ Stream error: {e}")
@@ -744,17 +852,22 @@ async def stream_chat(
 
 @router.post("/chat/regenerate", response_model=ChatResponse)
 async def regenerate_response(
-    request: RegenerateRequest,
+    regen_request: RegenerateRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    """Regenerate an AI response (respects conversation mode)"""
+    """Regenerate an AI response (respects conversation mode + #37 custom user prompt)"""
 
     start_time = datetime.utcnow()
 
     try:
+        # #37 — Resolve auth + custom prompt
+        authenticated_user_id = await get_authenticated_user_id(request, db)
+        custom_user_prompt = await get_user_custom_system_prompt(db, authenticated_user_id)
+        
         result = await db.execute(
             text("SELECT id, title, mode FROM conversations WHERE id = :conv_id"),
-            {"conv_id": request.conversation_id}
+            {"conv_id": regen_request.conversation_id}
         )
         conversation = result.fetchone()
 
@@ -773,7 +886,7 @@ async def regenerate_response(
                 )
                 ORDER BY created_at ASC
             """),
-            {"conv_id": request.conversation_id, "msg_id": request.message_id}
+            {"conv_id": regen_request.conversation_id, "msg_id": regen_request.message_id}
         )
 
         messages = result.fetchall()
@@ -795,7 +908,7 @@ async def regenerate_response(
         if detect_file_reference(user_message):
             file_context = await file_context_service.get_file_context(
                 db=db,
-                conversation_id=request.conversation_id
+                conversation_id=regen_request.conversation_id
             )
             if file_context:
                 files_used = file_context.count("=== File:")
@@ -813,17 +926,18 @@ async def regenerate_response(
                 search_results_count = len(search_results["results"])
                 search_context = "\n\n" + web_search_service.format_results_for_llm(search_results)
 
-        conv_context = context_manager.format_context_for_llm(request.conversation_id)
+        conv_context = context_manager.format_context_for_llm(regen_request.conversation_id)
 
-        # BUILD SYSTEM PROMPT BASED ON MODE — #25
+        # BUILD SYSTEM PROMPT — #25 mode + #37 custom prompt
         system_prompt = build_system_prompt(
             mode=current_mode,
             file_context=file_context,
             search_context=search_context,
-            conv_context=conv_context
+            conv_context=conv_context,
+            custom_user_prompt=custom_user_prompt
         )
 
-        chosen_model = request.model if request.model else None
+        chosen_model = regen_request.model if regen_request.model else None
 
         if not chosen_model:
             model_selection = model_router.choose_model(
@@ -840,7 +954,7 @@ async def regenerate_response(
         ai_response = await llm_service.generate(
             prompt=user_message,
             system_prompt=system_prompt,
-            temperature=request.temperature or 0.7,
+            temperature=regen_request.temperature or 0.7,
             max_tokens=2000,
             model=chosen_model
         )
@@ -850,18 +964,18 @@ async def regenerate_response(
 
         await db.execute(
             text("DELETE FROM messages WHERE id = :msg_id"),
-            {"msg_id": request.message_id}
+            {"msg_id": regen_request.message_id}
         )
         await db.commit()
 
-        await save_message(db, request.conversation_id, "assistant", ai_response, chosen_model, latency_ms)
-        context_manager.add_message(request.conversation_id, "assistant", ai_response)
+        await save_message(db, regen_request.conversation_id, "assistant", ai_response, chosen_model, latency_ms)
+        context_manager.add_message(regen_request.conversation_id, "assistant", ai_response)
 
         quality_score = model_router.models.get(chosen_model, {}).get("quality", 4)
 
         return ChatResponse(
             response=ai_response,
-            conversation_id=request.conversation_id,
+            conversation_id=regen_request.conversation_id,
             timestamp=end_time.isoformat(),
             response_type="chat",
             suggestions=[],
@@ -872,7 +986,8 @@ async def regenerate_response(
             model_selection_reason=selection_reason,
             model_quality_score=quality_score,
             files_used=files_used,
-            mode=current_mode
+            mode=current_mode,
+            custom_prompt_applied=bool(custom_user_prompt)
         )
 
     except Exception as e:

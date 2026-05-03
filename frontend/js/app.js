@@ -25,6 +25,15 @@ const MODE_PLACEHOLDERS = {
 };
 
 // ============================================================================
+// #37 — CUSTOM SYSTEM PROMPT STATE
+// ============================================================================
+
+// Whether the user has a custom system prompt set on the server.
+// Updated on init() and after save/clear in the settings panel.
+// Used to show/hide the "Custom prompt active" badge in the input area.
+var customPromptActive = false;
+
+// ============================================================================
 // MARKDOWN + SYNTAX HIGHLIGHTING SETUP
 // ============================================================================
 
@@ -87,6 +96,12 @@ document.addEventListener('DOMContentLoaded', () => {
         injectCalendarButton();
         initCalendar();
     }, 1600);
+    
+    // #37 — Settings: inject gear icon, fetch current custom prompt state
+    setTimeout(() => {
+        injectSettingsButton();
+        initSettings();
+    }, 1700);
 });
 
 // ============================================================================
@@ -274,6 +289,546 @@ function updateMemoryIndicator(count = null) {
         <span class="memory-dot"></span>
         <span class="memory-text">🧠 Remembering ${messages} messages</span>
     `;
+}
+
+// ============================================================================
+// #37 — CUSTOM SYSTEM PROMPTS — Settings panel + badge
+// User can save a custom system prompt that prepends to every chat.
+// Stored on the server at users.preferences.custom_system_prompt.
+// ============================================================================
+
+const CUSTOM_PROMPT_MAX_CHARS = 2000;
+
+/**
+ * Inject the gear icon into the sidebar header.
+ * Sits next to the "New Chat" button. Visible only when sidebar is rendered.
+ */
+function injectSettingsButton() {
+    if (document.getElementById('settingsBtn')) return;
+    
+    // Find a stable anchor — try sidebar header area first, fall back to top-bar
+    const sidebar = document.getElementById('sidebar');
+    const newChatBtn = sidebar ? sidebar.querySelector('button') : null;
+    
+    const btn = document.createElement('button');
+    btn.id = 'settingsBtn';
+    btn.className = 'settings-btn';
+    btn.innerHTML = '⚙️';
+    btn.title = 'Settings — customize AI behavior';
+    btn.onclick = openSettingsPanel;
+    btn.style.cssText = `
+        background: transparent;
+        border: 1px solid var(--border-primary, rgba(255, 255, 255, 0.12));
+        color: var(--text-primary, #f0f0f0);
+        font-size: 18px;
+        cursor: pointer;
+        padding: 6px 10px;
+        border-radius: 8px;
+        margin-left: 8px;
+        transition: background 0.15s ease, border-color 0.15s ease;
+        line-height: 1;
+    `;
+    btn.onmouseenter = () => {
+        btn.style.background = 'rgba(255, 255, 255, 0.06)';
+    };
+    btn.onmouseleave = () => {
+        btn.style.background = 'transparent';
+    };
+    
+    // Try a few common anchor locations so we adapt to whatever the HTML uses
+    if (newChatBtn && newChatBtn.parentElement) {
+        newChatBtn.parentElement.appendChild(btn);
+        return;
+    }
+    
+    const sidebarHeader = sidebar ? sidebar.querySelector('.sidebar-header') : null;
+    if (sidebarHeader) {
+        sidebarHeader.appendChild(btn);
+        return;
+    }
+    
+    // Last resort: float it bottom-right of viewport
+    btn.style.position = 'fixed';
+    btn.style.bottom = '20px';
+    btn.style.right = '20px';
+    btn.style.zIndex = '500';
+    document.body.appendChild(btn);
+}
+
+/**
+ * On page load, fetch the current custom prompt state so we know
+ * whether to show the badge.
+ */
+async function initSettings() {
+    try {
+        const response = await authFetch('/api/v1/settings/system-prompt');
+        if (response.ok) {
+            const data = await response.json();
+            customPromptActive = !!data.is_set;
+            updateCustomPromptBadge();
+        }
+    } catch (e) {
+        // Anonymous user or auth issue — leave badge off, no harm done
+        console.log('Settings init: not authenticated or endpoint unavailable');
+    }
+}
+
+/**
+ * Show/hide the "Custom prompt active" badge in the input area.
+ * Sits next to the memory indicator (#17) so they stack vertically.
+ */
+function updateCustomPromptBadge() {
+    let badge = document.getElementById('customPromptBadge');
+    
+    if (!customPromptActive) {
+        if (badge) badge.style.display = 'none';
+        return;
+    }
+    
+    if (!badge) {
+        const wrapper = document.querySelector('.input-wrapper');
+        if (!wrapper) return;
+        badge = document.createElement('div');
+        badge.id = 'customPromptBadge';
+        badge.style.cssText = `
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11.5px;
+            opacity: 0.75;
+            padding: 4px 10px;
+            margin-bottom: 6px;
+            color: var(--accent-primary, #d97706);
+            background: var(--bg-tertiary, rgba(217, 119, 6, 0.08));
+            border-radius: 12px;
+            width: fit-content;
+            cursor: pointer;
+            transition: opacity 0.15s ease;
+            font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
+        `;
+        badge.onmouseenter = () => { badge.style.opacity = '1'; };
+        badge.onmouseleave = () => { badge.style.opacity = '0.75'; };
+        badge.onclick = openSettingsPanel;
+        badge.title = 'Click to view or edit your custom prompt';
+        wrapper.insertBefore(badge, wrapper.firstChild);
+    }
+    
+    badge.innerHTML = `<span>✨</span><span>Custom prompt active</span><span style="opacity: 0.5;">·</span><span style="text-decoration: underline; opacity: 0.85;">edit</span>`;
+    badge.style.display = 'flex';
+}
+
+/**
+ * Open the settings panel modal. Loads current prompt from server,
+ * shows textarea + char counter + save/clear/cancel buttons.
+ */
+async function openSettingsPanel() {
+    // Remove any existing panel first
+    const existing = document.querySelector('.settings-panel-overlay');
+    if (existing) existing.remove();
+    
+    // ----- Overlay -----
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay settings-panel-overlay';
+    overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.55);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        padding: 16px;
+        animation: settingsFadeIn 0.18s ease-out;
+    `;
+    
+    // ----- Panel -----
+    const panel = document.createElement('div');
+    panel.className = 'settings-panel';
+    panel.style.cssText = `
+        background: var(--bg-secondary, #1a1a1a);
+        color: var(--text-primary, #f0f0f0);
+        border: 1px solid var(--border-primary, rgba(255, 255, 255, 0.08));
+        border-radius: 16px;
+        max-width: 620px;
+        width: 100%;
+        max-height: 90vh;
+        overflow-y: auto;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        animation: settingsSlideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    `;
+    
+    // ----- Header -----
+    const header = document.createElement('div');
+    header.style.cssText = `
+        padding: 24px 28px 16px;
+        border-bottom: 1px solid var(--border-primary, rgba(255, 255, 255, 0.06));
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    `;
+    header.innerHTML = `
+        <div>
+            <div style="font-size: 18px; font-weight: 600; line-height: 1.3;">Settings</div>
+            <div style="font-size: 13px; opacity: 0.65; margin-top: 4px;">Customize how OmniAI responds to you</div>
+        </div>
+        <button id="settingsCloseBtn" style="
+            background: transparent;
+            border: none;
+            color: var(--text-primary, #f0f0f0);
+            font-size: 22px;
+            cursor: pointer;
+            opacity: 0.6;
+            padding: 4px 10px;
+            border-radius: 6px;
+            transition: opacity 0.15s, background 0.15s;
+        " title="Close (Esc)">✕</button>
+    `;
+    
+    // ----- Body — Custom System Prompt section -----
+    const body = document.createElement('div');
+    body.style.cssText = `padding: 24px 28px;`;
+    body.innerHTML = `
+        <div style="margin-bottom: 18px;">
+            <div style="font-size: 14.5px; font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
+                <span>✨ Custom system prompt</span>
+                <span style="font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: var(--accent-primary, #d97706); color: white; letter-spacing: 0.05em;">PRO</span>
+            </div>
+            <div style="font-size: 12.5px; opacity: 0.7; line-height: 1.5;">
+                Tell OmniAI how to behave — your tone, style, expertise focus. Applied to every chat across all modes.
+            </div>
+        </div>
+        
+        <textarea id="customPromptInput" placeholder="Examples:
+- Always respond in Hinglish, casual tone
+- You're my Indian tax consultant. GST-first thinking.
+- Be brutally honest. No fluff. No 'I hope this helps' endings.
+- Format all code in Python with type hints" style="
+            width: 100%;
+            min-height: 180px;
+            max-height: 320px;
+            background: var(--bg-tertiary, rgba(255, 255, 255, 0.04));
+            color: var(--text-primary, #f0f0f0);
+            border: 1px solid var(--border-primary, rgba(255, 255, 255, 0.12));
+            border-radius: 10px;
+            padding: 12px 14px;
+            font-size: 13.5px;
+            font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
+            line-height: 1.55;
+            resize: vertical;
+            box-sizing: border-box;
+            outline: none;
+            transition: border-color 0.15s;
+        "></textarea>
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 12px;">
+            <div id="settingsHint" style="opacity: 0.55;">
+                Tip: Be specific. The more concrete your instructions, the better.
+            </div>
+            <div id="settingsCharCount" style="opacity: 0.7; font-variant-numeric: tabular-nums;">
+                0 / ${CUSTOM_PROMPT_MAX_CHARS}
+            </div>
+        </div>
+        
+        <div id="settingsStatusMessage" style="
+            margin-top: 14px;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            display: none;
+        "></div>
+    `;
+    
+    // ----- Footer / actions -----
+    const footer = document.createElement('div');
+    footer.style.cssText = `
+        padding: 16px 28px 22px;
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        border-top: 1px solid var(--border-primary, rgba(255, 255, 255, 0.06));
+        background: var(--bg-tertiary, rgba(255, 255, 255, 0.02));
+    `;
+    
+    const clearBtn = document.createElement('button');
+    clearBtn.id = 'settingsClearBtn';
+    clearBtn.textContent = 'Clear prompt';
+    clearBtn.style.cssText = `
+        background: transparent;
+        color: var(--text-primary, #f0f0f0);
+        border: 1px solid rgba(239, 68, 68, 0.4);
+        padding: 9px 16px;
+        border-radius: 8px;
+        font-size: 13.5px;
+        font-weight: 500;
+        font-family: inherit;
+        cursor: pointer;
+        margin-right: auto;
+        opacity: 0.85;
+        transition: background 0.15s, opacity 0.15s;
+    `;
+    clearBtn.onmouseenter = () => {
+        clearBtn.style.background = 'rgba(239, 68, 68, 0.08)';
+        clearBtn.style.opacity = '1';
+    };
+    clearBtn.onmouseleave = () => {
+        clearBtn.style.background = 'transparent';
+        clearBtn.style.opacity = '0.85';
+    };
+    
+    const cancelBtn = document.createElement('button');
+    cancelBtn.id = 'settingsCancelBtn';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.style.cssText = `
+        background: transparent;
+        color: var(--text-primary, #f0f0f0);
+        border: 1px solid var(--border-primary, rgba(255, 255, 255, 0.15));
+        padding: 9px 18px;
+        border-radius: 8px;
+        font-size: 13.5px;
+        font-weight: 500;
+        font-family: inherit;
+        cursor: pointer;
+        transition: background 0.15s;
+    `;
+    cancelBtn.onmouseenter = () => { cancelBtn.style.background = 'rgba(255, 255, 255, 0.06)'; };
+    cancelBtn.onmouseleave = () => { cancelBtn.style.background = 'transparent'; };
+    
+    const saveBtn = document.createElement('button');
+    saveBtn.id = 'settingsSaveBtn';
+    saveBtn.textContent = 'Save';
+    saveBtn.style.cssText = `
+        background: var(--accent-primary, #d97706);
+        color: white;
+        border: none;
+        padding: 9px 20px;
+        border-radius: 8px;
+        font-size: 13.5px;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+        transition: opacity 0.15s;
+    `;
+    saveBtn.onmouseenter = () => { saveBtn.style.opacity = '0.9'; };
+    saveBtn.onmouseleave = () => { saveBtn.style.opacity = '1'; };
+    
+    footer.appendChild(clearBtn);
+    footer.appendChild(cancelBtn);
+    footer.appendChild(saveBtn);
+    
+    // ----- Inject keyframes (once) -----
+    if (!document.getElementById('settingsPanelKeyframes')) {
+        const styleTag = document.createElement('style');
+        styleTag.id = 'settingsPanelKeyframes';
+        styleTag.textContent = `
+            @keyframes settingsFadeIn {
+                from { opacity: 0; }
+                to { opacity: 1; }
+            }
+            @keyframes settingsSlideUp {
+                from { opacity: 0; transform: translateY(12px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            #customPromptInput:focus {
+                border-color: var(--accent-primary, #d97706) !important;
+            }
+        `;
+        document.head.appendChild(styleTag);
+    }
+    
+    // ----- Assemble -----
+    panel.appendChild(header);
+    panel.appendChild(body);
+    panel.appendChild(footer);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+    
+    // ----- Wire up state and handlers -----
+    const textarea = document.getElementById('customPromptInput');
+    const charCount = document.getElementById('settingsCharCount');
+    const statusMsg = document.getElementById('settingsStatusMessage');
+    const closeBtn = document.getElementById('settingsCloseBtn');
+    
+    function showStatus(message, type) {
+        statusMsg.textContent = message;
+        statusMsg.style.display = 'block';
+        if (type === 'success') {
+            statusMsg.style.background = 'rgba(34, 197, 94, 0.12)';
+            statusMsg.style.color = '#22c55e';
+            statusMsg.style.border = '1px solid rgba(34, 197, 94, 0.3)';
+        } else if (type === 'error') {
+            statusMsg.style.background = 'rgba(239, 68, 68, 0.12)';
+            statusMsg.style.color = '#ef4444';
+            statusMsg.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+        } else {
+            statusMsg.style.background = 'rgba(255, 255, 255, 0.04)';
+            statusMsg.style.color = 'var(--text-primary, #f0f0f0)';
+            statusMsg.style.border = '1px solid rgba(255, 255, 255, 0.08)';
+        }
+    }
+    
+    function hideStatus() {
+        statusMsg.style.display = 'none';
+    }
+    
+    function updateCharCount() {
+        const len = textarea.value.length;
+        charCount.textContent = `${len} / ${CUSTOM_PROMPT_MAX_CHARS}`;
+        if (len > CUSTOM_PROMPT_MAX_CHARS) {
+            charCount.style.color = '#ef4444';
+            saveBtn.disabled = true;
+            saveBtn.style.opacity = '0.5';
+            saveBtn.style.cursor = 'not-allowed';
+        } else {
+            charCount.style.color = '';
+            saveBtn.disabled = false;
+            saveBtn.style.opacity = '1';
+            saveBtn.style.cursor = 'pointer';
+        }
+    }
+    
+    textarea.addEventListener('input', () => {
+        updateCharCount();
+        hideStatus();
+    });
+    
+    // Load current value from server
+    showStatus('Loading...', 'info');
+    try {
+        const response = await authFetch('/api/v1/settings/system-prompt');
+        if (response.ok) {
+            const data = await response.json();
+            textarea.value = data.prompt || '';
+            updateCharCount();
+            hideStatus();
+            // If nothing set yet, show clearBtn as disabled-looking
+            if (!data.is_set) {
+                clearBtn.style.opacity = '0.4';
+                clearBtn.style.cursor = 'default';
+                clearBtn.disabled = true;
+            }
+        } else if (response.status === 401) {
+            showStatus('Please log in to save your custom prompt.', 'error');
+            saveBtn.disabled = true;
+            saveBtn.style.opacity = '0.5';
+            clearBtn.disabled = true;
+            clearBtn.style.opacity = '0.4';
+        } else {
+            showStatus('Could not load current prompt. You can still create a new one below.', 'error');
+        }
+    } catch (e) {
+        showStatus('Could not connect to server. ' + e.message, 'error');
+    }
+    
+    // Focus the textarea after loading
+    setTimeout(() => textarea.focus(), 100);
+    
+    // ----- Save handler -----
+    saveBtn.onclick = async () => {
+        const prompt = textarea.value.trim();
+        if (!prompt) {
+            showStatus('Prompt cannot be empty. Use "Clear prompt" to remove your existing one.', 'error');
+            return;
+        }
+        if (prompt.length > CUSTOM_PROMPT_MAX_CHARS) {
+            showStatus(`Prompt is too long. Maximum is ${CUSTOM_PROMPT_MAX_CHARS} characters.`, 'error');
+            return;
+        }
+        
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+        saveBtn.style.opacity = '0.7';
+        showStatus('Saving...', 'info');
+        
+        try {
+            const response = await authFetch('/api/v1/settings/system-prompt', {
+                method: 'PUT',
+                body: JSON.stringify({ prompt: prompt })
+            });
+            
+            if (response.ok) {
+                customPromptActive = true;
+                updateCustomPromptBadge();
+                showStatus('✓ Saved. Your custom prompt is now active in every chat.', 'success');
+                clearBtn.disabled = false;
+                clearBtn.style.opacity = '0.85';
+                clearBtn.style.cursor = 'pointer';
+                setTimeout(() => {
+                    overlay.remove();
+                }, 900);
+            } else {
+                let errMsg = 'Could not save prompt.';
+                try {
+                    const errData = await response.json();
+                    if (errData.detail) errMsg = errData.detail;
+                } catch (e) { /* swallow */ }
+                showStatus('❌ ' + errMsg, 'error');
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Save';
+                saveBtn.style.opacity = '1';
+            }
+        } catch (e) {
+            showStatus('❌ Network error: ' + e.message, 'error');
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save';
+            saveBtn.style.opacity = '1';
+        }
+    };
+    
+    // ----- Clear handler -----
+    clearBtn.onclick = async () => {
+        if (clearBtn.disabled) return;
+        if (!confirm('Clear your custom prompt? OmniAI will go back to default behavior.')) return;
+        
+        clearBtn.disabled = true;
+        clearBtn.textContent = 'Clearing...';
+        showStatus('Clearing...', 'info');
+        
+        try {
+            const response = await authFetch('/api/v1/settings/system-prompt', {
+                method: 'DELETE'
+            });
+            
+            if (response.ok) {
+                textarea.value = '';
+                updateCharCount();
+                customPromptActive = false;
+                updateCustomPromptBadge();
+                showStatus('✓ Cleared. OmniAI is back to default behavior.', 'success');
+                clearBtn.style.opacity = '0.4';
+                clearBtn.style.cursor = 'default';
+                clearBtn.textContent = 'Clear prompt';
+                setTimeout(() => {
+                    overlay.remove();
+                }, 900);
+            } else {
+                showStatus('❌ Could not clear prompt.', 'error');
+                clearBtn.disabled = false;
+                clearBtn.textContent = 'Clear prompt';
+            }
+        } catch (e) {
+            showStatus('❌ Network error: ' + e.message, 'error');
+            clearBtn.disabled = false;
+            clearBtn.textContent = 'Clear prompt';
+        }
+    };
+    
+    // ----- Dismiss handlers -----
+    const dismiss = () => overlay.remove();
+    cancelBtn.onclick = dismiss;
+    closeBtn.onclick = dismiss;
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) dismiss();
+    });
+    
+    // Esc to close — handled by the existing global Escape handler that
+    // closes any .modal-overlay
 }
 
 // ============================================================================
@@ -2492,6 +3047,7 @@ document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === '/') { e.preventDefault(); const s = document.getElementById('searchBox'); if (s) s.focus(); }
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'D') { e.preventDefault(); if (typeof toggleTheme === 'function') toggleTheme(); }
     if ((e.ctrlKey || e.metaKey) && e.key === 'e') { e.preventDefault(); if (conversationId) exportConversation(conversationId, 'md'); }
+    if ((e.ctrlKey || e.metaKey) && e.key === ',') { e.preventDefault(); openSettingsPanel(); }
     if (e.key === 'Escape') {
         const exportMenu = document.querySelector('.export-menu'); if (exportMenu) exportMenu.remove();
         const modal = document.querySelector('.modal-overlay'); if (modal) modal.remove();
@@ -2511,6 +3067,7 @@ function toggleShortcutsHelp() {
             <div class="shortcut-row"><span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>N</kbd></span> <span>New conversation</span></div>
             <div class="shortcut-row"><span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>/</kbd></span> <span>Search conversations</span></div>
             <div class="shortcut-row"><span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>E</kbd></span> <span>Export conversation</span></div>
+            <div class="shortcut-row"><span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>,</kbd></span> <span>Open settings</span></div>
             <div class="shortcut-row"><span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd></span> <span>Toggle dark mode</span></div>
             <div class="shortcut-row"><span class="shortcut-keys"><kbd>Esc</kbd></span> <span>Close menus</span></div>
             <div class="shortcut-row"><span class="shortcut-keys"><kbd>?</kbd></span> <span>Show this help</span></div>
@@ -2758,6 +3315,11 @@ async function sendMessage() {
                     if (event.mode && event.mode !== currentMode) {
                         updateModePillUI(event.mode);
                     }
+                    // #37 — Sync the badge state with the server's view on this turn
+                    if (typeof event.custom_prompt_applied === 'boolean') {
+                        customPromptActive = event.custom_prompt_applied;
+                        updateCustomPromptBadge();
+                    }
                 } else if (event.type === 'status') {
                     const statusMap = {
                         'Searching web...': '🔍 Searching web...',
@@ -2829,8 +3391,7 @@ async function sendMessage() {
     }
 }
 
-// ============================================
-
+// ============================================================================
 // REGENERATE RESPONSE
 // ============================================================================
 
