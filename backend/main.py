@@ -24,6 +24,7 @@ from api.export import router as export_router
 from api.messages import router as messages_router
 from api.auth import router as auth_router
 from api.settings import router as settings_router  # #37 — Custom system prompts
+from api.memories import router as memories_router  # #38 — Persistent user memory
 
 # Optional routers
 try:
@@ -106,6 +107,7 @@ app.include_router(export_router)
 app.include_router(messages_router)
 app.include_router(auth_router)
 app.include_router(settings_router)  # #37 — Custom system prompts
+app.include_router(memories_router)  # #38 — Persistent user memory
 
 if HAS_GMAIL_ROUTER:
     app.include_router(gmail_router)
