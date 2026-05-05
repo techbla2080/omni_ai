@@ -727,6 +727,8 @@ async function openSettingsPanel() {
     }
     
     // Focus the textarea after loading
+    // #38 — Render the memory section below the custom prompt section
+    await renderMemorySection(body);
     setTimeout(() => textarea.focus(), 100);
     
     // ----- Save handler -----
@@ -3456,4 +3458,563 @@ function copyCode(button) {
     const codeEl = wrapper.querySelector('code') || wrapper.querySelector('pre');
     const code = codeEl ? codeEl.textContent : '';
     copyToClipboard(code, button, '📋 Copy');
+}
+
+// ============================================================================
+// #38 — PERSISTENT USER MEMORY (settings panel section)
+// Renders the memory list inside the existing #37 settings panel, beneath the
+// custom prompt section. Reads /api/v1/memories on panel open, supports
+// edit/delete per-memory, "Forget everything" wipe, and pause-toggle.
+// ============================================================================
+
+const MEMORY_CATEGORY_LABELS = {
+    identity: { label: 'Identity', icon: '👤' },
+    preference: { label: 'Preferences', icon: '✨' },
+    context: { label: 'Context', icon: '🎯' }
+};
+
+/**
+ * Inject the memory section into an open settings panel.
+ * Called from openSettingsPanel after the custom prompt section is built.
+ */
+async function renderMemorySection(panelBody) {
+    if (!panelBody) return;
+    
+    // Container with placeholder so the section appears even before fetch completes
+    const memorySection = document.createElement('div');
+    memorySection.id = 'memorySection';
+    memorySection.style.cssText = `
+        margin-top: 28px;
+        padding-top: 24px;
+        border-top: 1px solid var(--border-primary, rgba(255, 255, 255, 0.08));
+    `;
+    memorySection.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; gap: 12px;">
+            <div style="font-size: 14.5px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                <span>🧠 Memories</span>
+                <span style="font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: var(--accent-primary, #d97706); color: white; letter-spacing: 0.05em;">PRO</span>
+            </div>
+            <div id="memoryCountBadge" style="font-size: 12px; opacity: 0.7; font-variant-numeric: tabular-nums;">Loading…</div>
+        </div>
+        <div style="font-size: 12.5px; opacity: 0.7; line-height: 1.5; margin-bottom: 14px;">
+            Durable facts OmniAI has learned about you. Used in every chat across all modes.
+        </div>
+        
+        <div id="memoryPauseRow" style="
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--bg-tertiary, rgba(255, 255, 255, 0.04));
+            border-radius: 10px;
+            padding: 12px 14px;
+            margin-bottom: 16px;
+            font-size: 13px;
+        ">
+            <div>
+                <div style="font-weight: 500;">Pause learning new memories</div>
+                <div style="font-size: 11.5px; opacity: 0.6; margin-top: 2px;">Existing memories still apply. New facts won't be saved.</div>
+            </div>
+            <label style="position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0;">
+                <input type="checkbox" id="memoryPauseToggle" style="opacity: 0; width: 0; height: 0;">
+                <span id="memoryPauseSlider" style="
+                    position: absolute;
+                    cursor: pointer;
+                    top: 0; left: 0; right: 0; bottom: 0;
+                    background: rgba(255, 255, 255, 0.15);
+                    border-radius: 22px;
+                    transition: background 0.2s;
+                "></span>
+                <span id="memoryPauseSliderDot" style="
+                    position: absolute;
+                    height: 16px; width: 16px;
+                    left: 3px; bottom: 3px;
+                    background: white;
+                    border-radius: 50%;
+                    transition: transform 0.2s;
+                    pointer-events: none;
+                "></span>
+            </label>
+        </div>
+        
+        <div id="memoryList" style="
+            min-height: 60px;
+            max-height: 400px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        ">
+            <div style="opacity: 0.5; font-size: 13px; text-align: center; padding: 20px;">Loading memories…</div>
+        </div>
+        
+        <div id="memoryWipeRow" style="margin-top: 18px; display: flex; justify-content: flex-end;">
+            <button id="memoryWipeBtn" style="
+                background: transparent;
+                color: #ef4444;
+                border: 1px solid rgba(239, 68, 68, 0.4);
+                padding: 8px 14px;
+                border-radius: 8px;
+                font-size: 12.5px;
+                font-weight: 500;
+                font-family: inherit;
+                cursor: pointer;
+                opacity: 0.85;
+                transition: background 0.15s, opacity 0.15s;
+                display: none;
+            ">🗑️ Forget everything about me</button>
+        </div>
+    `;
+    
+    panelBody.appendChild(memorySection);
+    
+    // Wire up handlers, then load data
+    wireMemorySectionHandlers();
+    await loadMemories();
+}
+
+
+/**
+ * Wire up the static buttons + toggle. Each is hooked to its respective
+ * server endpoint via authFetch.
+ */
+function wireMemorySectionHandlers() {
+    const pauseToggle = document.getElementById('memoryPauseToggle');
+    const wipeBtn = document.getElementById('memoryWipeBtn');
+    
+    if (pauseToggle) {
+        pauseToggle.addEventListener('change', async (e) => {
+            const newPaused = e.target.checked;
+            updatePauseSliderVisual(newPaused);
+            try {
+                const response = await authFetch('/api/v1/memories/settings', {
+                    method: 'PUT',
+                    body: JSON.stringify({ paused: newPaused })
+                });
+                if (!response.ok) {
+                    // Revert on failure
+                    pauseToggle.checked = !newPaused;
+                    updatePauseSliderVisual(!newPaused);
+                    showMemoryToast('Could not update pause state', 'error');
+                }
+            } catch (err) {
+                pauseToggle.checked = !newPaused;
+                updatePauseSliderVisual(!newPaused);
+                showMemoryToast('Network error: ' + err.message, 'error');
+            }
+        });
+    }
+    
+    if (wipeBtn) {
+        wipeBtn.addEventListener('click', async () => {
+            if (!confirm("Forget everything about you? This deletes all your memories. The AI will start fresh next chat. This cannot be undone.")) {
+                return;
+            }
+            wipeBtn.disabled = true;
+            wipeBtn.textContent = 'Wiping…';
+            try {
+                const response = await authFetch('/api/v1/memories', { method: 'DELETE' });
+                if (response.ok) {
+                    const data = await response.json();
+                    showMemoryToast(`Forgot ${data.count || 0} memories`, 'success');
+                    await loadMemories();
+                } else {
+                    showMemoryToast('Could not wipe memories', 'error');
+                    wipeBtn.disabled = false;
+                    wipeBtn.textContent = '🗑️ Forget everything about me';
+                }
+            } catch (err) {
+                showMemoryToast('Network error: ' + err.message, 'error');
+                wipeBtn.disabled = false;
+                wipeBtn.textContent = '🗑️ Forget everything about me';
+            }
+        });
+    }
+}
+
+
+/**
+ * Visual update for the pause toggle slider — moves the dot, changes color.
+ * Separate from the state because we may need to revert on server error.
+ */
+function updatePauseSliderVisual(isPaused) {
+    const slider = document.getElementById('memoryPauseSlider');
+    const dot = document.getElementById('memoryPauseSliderDot');
+    if (slider) {
+        slider.style.background = isPaused
+            ? 'var(--accent-primary, #d97706)'
+            : 'rgba(255, 255, 255, 0.15)';
+    }
+    if (dot) {
+        dot.style.transform = isPaused ? 'translateX(18px)' : 'translateX(0)';
+    }
+}
+
+
+/**
+ * Fetch memories from server and render the list. Also updates the count
+ * badge, pause toggle state, and wipe button visibility (hidden when 0).
+ */
+async function loadMemories() {
+    const listEl = document.getElementById('memoryList');
+    const countBadge = document.getElementById('memoryCountBadge');
+    const pauseToggle = document.getElementById('memoryPauseToggle');
+    const wipeBtn = document.getElementById('memoryWipeBtn');
+    
+    if (!listEl || !countBadge) return;
+    
+    listEl.innerHTML = '<div style="opacity: 0.5; font-size: 13px; text-align: center; padding: 20px;">Loading memories…</div>';
+    
+    try {
+        const response = await authFetch('/api/v1/memories');
+        if (!response.ok) {
+            if (response.status === 401) {
+                listEl.innerHTML = '<div style="opacity: 0.5; font-size: 13px; text-align: center; padding: 20px;">Please log in to use memory features.</div>';
+                countBadge.textContent = '';
+                return;
+            }
+            throw new Error('Server returned ' + response.status);
+        }
+        const data = await response.json();
+        
+        // Update count badge
+        const used = data.active_count || 0;
+        const cap = data.cap || 10;
+        const isPro = !!data.is_pro;
+        if (isPro) {
+            countBadge.innerHTML = `<span style="opacity: 0.85;">${used} saved · unlimited</span>`;
+        } else {
+            // Color the badge red if at cap
+            const atCap = used >= cap;
+            const color = atCap ? '#ef4444' : 'inherit';
+            countBadge.innerHTML = `<span style="color: ${color};">${used} of ${cap} used</span>`;
+        }
+        
+        // Sync pause toggle (without firing the change event)
+        if (pauseToggle) {
+            pauseToggle.checked = !!data.paused;
+            updatePauseSliderVisual(!!data.paused);
+        }
+        
+        // Wipe button visible only if there's something to wipe
+        if (wipeBtn) {
+            wipeBtn.style.display = (data.memories && data.memories.length > 0) ? 'inline-block' : 'none';
+            wipeBtn.disabled = false;
+            wipeBtn.textContent = '🗑️ Forget everything about me';
+        }
+        
+        renderMemoriesList(data.memories || []);
+        
+    } catch (err) {
+        console.error('#38 loadMemories failed:', err);
+        listEl.innerHTML = `<div style="opacity: 0.6; font-size: 13px; text-align: center; padding: 20px; color: #ef4444;">Could not load memories: ${escapeHtml(err.message)}</div>`;
+        countBadge.textContent = '';
+    }
+}
+
+
+/**
+ * Render the memories list, grouped by category.
+ * Empty state shows a helpful "no memories yet" message.
+ */
+function renderMemoriesList(memories) {
+    const listEl = document.getElementById('memoryList');
+    if (!listEl) return;
+    
+    if (!memories || memories.length === 0) {
+        listEl.innerHTML = `
+            <div style="
+                opacity: 0.6;
+                font-size: 13px;
+                text-align: center;
+                padding: 28px 16px;
+                background: var(--bg-tertiary, rgba(255, 255, 255, 0.02));
+                border-radius: 10px;
+                line-height: 1.6;
+            ">
+                <div style="font-size: 22px; margin-bottom: 6px;">🧠</div>
+                <div>No memories yet.</div>
+                <div style="font-size: 11.5px; opacity: 0.7; margin-top: 6px;">
+                    OmniAI will start learning durable facts about you as you chat.
+                </div>
+            </div>
+        `;
+        return;
+    }
+    
+    // Group by category
+    const grouped = { identity: [], preference: [], context: [] };
+    memories.forEach(m => {
+        const cat = (m.category || 'context').toLowerCase();
+        if (grouped[cat]) grouped[cat].push(m);
+    });
+    
+    const html = Object.keys(grouped)
+        .filter(cat => grouped[cat].length > 0)
+        .map(cat => {
+            const meta = MEMORY_CATEGORY_LABELS[cat];
+            const items = grouped[cat].map(m => renderSingleMemory(m)).join('');
+            return `
+                <div class="memory-category-group">
+                    <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.55; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                        <span>${meta.icon}</span><span>${meta.label}</span>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">${items}</div>
+                </div>
+            `;
+        })
+        .join('');
+    
+    listEl.innerHTML = html;
+    
+    // Wire up the per-row buttons (delegated; one listener for each row)
+    listEl.querySelectorAll('[data-memory-id]').forEach(row => {
+        const id = row.dataset.memoryId;
+        const editBtn = row.querySelector('.memory-edit-btn');
+        const deleteBtn = row.querySelector('.memory-delete-btn');
+        if (editBtn) editBtn.addEventListener('click', () => startEditMemory(id, row));
+        if (deleteBtn) deleteBtn.addEventListener('click', () => deleteSingleMemory(id, row));
+    });
+}
+
+
+function renderSingleMemory(memory) {
+    const id = memory.id;
+    const content = escapeHtml(memory.content || '');
+    return `
+        <div class="memory-row" data-memory-id="${id}" style="
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 10px;
+            background: var(--bg-tertiary, rgba(255, 255, 255, 0.03));
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 13px;
+            line-height: 1.45;
+            transition: background 0.15s;
+        ">
+            <div class="memory-content-wrap" style="flex: 1; min-width: 0;">
+                <div class="memory-content-display" style="word-wrap: break-word;">${content}</div>
+            </div>
+            <div class="memory-row-actions" style="display: flex; gap: 4px; flex-shrink: 0;">
+                <button class="memory-edit-btn" title="Edit memory" style="
+                    background: transparent;
+                    border: none;
+                    color: var(--text-primary, #f0f0f0);
+                    font-size: 14px;
+                    cursor: pointer;
+                    padding: 4px 6px;
+                    border-radius: 4px;
+                    opacity: 0.55;
+                    transition: opacity 0.15s, background 0.15s;
+                " onmouseover="this.style.opacity='1';this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.opacity='0.55';this.style.background='transparent'">✏️</button>
+                <button class="memory-delete-btn" title="Delete memory" style="
+                    background: transparent;
+                    border: none;
+                    color: #ef4444;
+                    font-size: 14px;
+                    cursor: pointer;
+                    padding: 4px 6px;
+                    border-radius: 4px;
+                    opacity: 0.55;
+                    transition: opacity 0.15s, background 0.15s;
+                " onmouseover="this.style.opacity='1';this.style.background='rgba(239,68,68,0.1)'" onmouseout="this.style.opacity='0.55';this.style.background='transparent'">🗑️</button>
+            </div>
+        </div>
+    `;
+}
+
+
+/**
+ * Inline edit a single memory. Replaces the content with a textarea +
+ * Save/Cancel buttons. On save, calls PUT /memories/{id} and reloads list.
+ */
+function startEditMemory(memoryId, rowEl) {
+    const wrap = rowEl.querySelector('.memory-content-wrap');
+    const display = rowEl.querySelector('.memory-content-display');
+    const actions = rowEl.querySelector('.memory-row-actions');
+    if (!wrap || !display || !actions) return;
+    
+    const originalContent = display.textContent;
+    
+    // Hide action buttons during edit
+    actions.style.display = 'none';
+    
+    wrap.innerHTML = `
+        <textarea class="memory-edit-textarea" style="
+            width: 100%;
+            background: var(--bg-secondary, #1a1a1a);
+            color: var(--text-primary, #f0f0f0);
+            border: 1px solid var(--accent-primary, #d97706);
+            border-radius: 6px;
+            padding: 8px 10px;
+            font-size: 13px;
+            font-family: inherit;
+            line-height: 1.45;
+            resize: vertical;
+            min-height: 50px;
+            box-sizing: border-box;
+            outline: none;
+        "></textarea>
+        <div class="memory-edit-buttons" style="display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end;">
+            <button class="memory-edit-cancel" style="
+                background: transparent;
+                color: var(--text-primary, #f0f0f0);
+                border: 1px solid var(--border-primary, rgba(255, 255, 255, 0.15));
+                padding: 5px 12px;
+                border-radius: 6px;
+                font-size: 12px;
+                font-family: inherit;
+                cursor: pointer;
+            ">Cancel</button>
+            <button class="memory-edit-save" style="
+                background: var(--accent-primary, #d97706);
+                color: white;
+                border: none;
+                padding: 5px 14px;
+                border-radius: 6px;
+                font-size: 12px;
+                font-weight: 600;
+                font-family: inherit;
+                cursor: pointer;
+            ">Save</button>
+        </div>
+    `;
+    
+    const textarea = wrap.querySelector('textarea');
+    const cancelBtn = wrap.querySelector('.memory-edit-cancel');
+    const saveBtn = wrap.querySelector('.memory-edit-save');
+    
+    textarea.value = originalContent;
+    setTimeout(() => {
+        textarea.focus();
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    }, 50);
+    
+    cancelBtn.addEventListener('click', () => {
+        wrap.innerHTML = `<div class="memory-content-display" style="word-wrap: break-word;">${escapeHtml(originalContent)}</div>`;
+        actions.style.display = 'flex';
+    });
+    
+    saveBtn.addEventListener('click', async () => {
+        const newContent = (textarea.value || '').trim();
+        if (!newContent) {
+            showMemoryToast('Memory cannot be empty', 'error');
+            return;
+        }
+        if (newContent === originalContent) {
+            cancelBtn.click();
+            return;
+        }
+        if (newContent.length > 500) {
+            showMemoryToast('Memory too long (max 500 chars)', 'error');
+            return;
+        }
+        
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving…';
+        try {
+            const response = await authFetch(`/api/v1/memories/${memoryId}`, {
+                method: 'PUT',
+                body: JSON.stringify({ content: newContent })
+            });
+            if (response.ok) {
+                showMemoryToast('Memory updated', 'success');
+                await loadMemories();
+            } else {
+                let errMsg = 'Could not update memory';
+                try {
+                    const errData = await response.json();
+                    if (errData.detail) errMsg = errData.detail;
+                } catch (e) { /* swallow */ }
+                showMemoryToast(errMsg, 'error');
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Save';
+            }
+        } catch (err) {
+            showMemoryToast('Network error: ' + err.message, 'error');
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save';
+        }
+    });
+}
+
+
+async function deleteSingleMemory(memoryId, rowEl) {
+    if (!confirm('Delete this memory? OmniAI will no longer remember it.')) return;
+    
+    // Optimistic UI: fade the row immediately
+    rowEl.style.opacity = '0.4';
+    rowEl.style.pointerEvents = 'none';
+    
+    try {
+        const response = await authFetch(`/api/v1/memories/${memoryId}`, { method: 'DELETE' });
+        if (response.ok) {
+            // Reload list (gives accurate count + handles empty state)
+            await loadMemories();
+        } else {
+            // Revert on failure
+            rowEl.style.opacity = '1';
+            rowEl.style.pointerEvents = '';
+            showMemoryToast('Could not delete memory', 'error');
+        }
+    } catch (err) {
+        rowEl.style.opacity = '1';
+        rowEl.style.pointerEvents = '';
+        showMemoryToast('Network error: ' + err.message, 'error');
+    }
+}
+
+
+/**
+ * Tiny toast notification for memory operations. Floats top-center
+ * of the settings panel, auto-dismisses after 2.5 seconds.
+ */
+function showMemoryToast(message, type) {
+    // Remove any existing toast first so they don't stack
+    const existing = document.getElementById('memoryToast');
+    if (existing) existing.remove();
+    
+    const colors = {
+        success: { bg: 'rgba(34, 197, 94, 0.15)', text: '#22c55e', border: 'rgba(34, 197, 94, 0.3)' },
+        error: { bg: 'rgba(239, 68, 68, 0.15)', text: '#ef4444', border: 'rgba(239, 68, 68, 0.3)' },
+        info: { bg: 'rgba(255,255,255,0.06)', text: 'inherit', border: 'rgba(255,255,255,0.1)' }
+    };
+    const c = colors[type] || colors.info;
+    
+    const toast = document.createElement('div');
+    toast.id = 'memoryToast';
+    toast.style.cssText = `
+        position: absolute;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: ${c.bg};
+        color: ${c.text};
+        border: 1px solid ${c.border};
+        padding: 8px 16px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 500;
+        z-index: 10001;
+        backdrop-filter: blur(8px);
+        animation: settingsFadeIn 0.18s ease-out;
+        pointer-events: none;
+    `;
+    toast.textContent = message;
+    
+    // Anchor inside the settings panel if it exists, otherwise body
+    const panel = document.querySelector('.settings-panel');
+    if (panel) {
+        panel.style.position = 'relative';
+        panel.appendChild(toast);
+    } else {
+        document.body.appendChild(toast);
+    }
+    
+    setTimeout(() => {
+        toast.style.transition = 'opacity 0.25s';
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 280);
+    }, 2500);
 }
