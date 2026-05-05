@@ -7,8 +7,18 @@ NOW WITH: Auto-generated titles, title editing, WEB SEARCH, SMART MODEL ROUTING,
 - build_system_prompt() accepts a custom_user_prompt that prepends to the mode prompt
 - Custom prompt is fetched from users.preferences->>'custom_system_prompt' on every chat
 - Applies across ALL modes (normal/email/calendar/code) — user's personality persists everywhere
+
+#38 — Persistent User Memory (Pro feature, free tier capped at 10):
+- Before every LLM call, recall the user's active memories and inject them into
+  the system prompt (between the custom prompt and the mode prompt).
+- After every chat turn completes, fire-and-forget extraction runs in the
+  background to find durable facts about the user and save them.
+- Extraction creates its own DB session so it survives request-scope teardown.
+- Regenerate does NOT re-extract (would create duplicates from the same user msg).
+- Memory recall + extraction are gated by users.preferences.memory_collection_paused.
 """
 
+import asyncio
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -20,6 +30,7 @@ from pathlib import Path
 import uuid
 import re
 import json
+import logging
 
 # Import LLM service, database, context manager, web search, model router, AND FILE CONTEXT
 from services.llm import llm_service
@@ -28,6 +39,15 @@ from services.web_search import web_search_service
 from services.model_router import model_router
 from services.file_context import file_context_service
 from database import get_db
+
+# #38 — Memory recall + extraction
+from services.memory import (
+    get_active_memories,
+    format_memories_for_prompt,
+    extract_and_save_memories,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["chat"])
 
@@ -135,21 +155,141 @@ async def get_user_custom_system_prompt(db: AsyncSession, user_id: Optional[str]
         return None
 
 
+# ============================================================================
+# #38 — Memory recall helper + background extraction launcher
+# ============================================================================
+
+async def get_user_memories_for_prompt(
+    db: AsyncSession,
+    user_id: Optional[str]
+) -> str:
+    """
+    Recall the user's active memories and format them for the system prompt.
+    
+    Returns "" (empty string — falsy) when:
+    - user_id is None (anonymous)
+    - user has no memories yet (new user / paused / cleared)
+    - any error occurs (memory recall must never break chat)
+    
+    The hot path: this runs before EVERY chat request. The DB query uses the
+    idx_user_memories_user_active partial index — typically <2ms.
+    """
+    if not user_id:
+        return ""
+    try:
+        memories = await get_active_memories(db, user_id, limit=50)
+        if not memories:
+            return ""
+        formatted = format_memories_for_prompt(memories)
+        if formatted:
+            print(f"🧠 Recalled {len(memories)} memories for user {user_id[:8]}")
+        return formatted
+    except Exception as e:
+        # Memory recall must NEVER break chat. Swallow and continue.
+        logger.warning(f"#38 Memory recall failed for {user_id[:8] if user_id else 'anon'}: {e}")
+        return ""
+
+
+def schedule_memory_extraction(
+    user_id: Optional[str],
+    user_message: str,
+    ai_response: str,
+    conversation_id: Optional[str]
+) -> None:
+    """
+    Fire-and-forget memory extraction. Returns immediately. The extraction
+    runs in the background using its own DB session so it survives the
+    teardown of the request that triggered it.
+    
+    Skips silently if:
+    - user_id is None (anonymous — no user to attach memories to)
+    - the background task can't be launched for any reason
+    
+    The background task itself handles its own errors and never raises.
+    """
+    if not user_id:
+        return
+    if not (user_message and ai_response):
+        return
+    
+    async def _runner():
+        # Late-imported here so the module loads even if database internals
+        # change. The function is a no-op if extraction can't be wired up.
+        try:
+            # Try to get an independent session. We don't reuse the request's
+            # session because by the time this task runs, the request scope
+            # may already be torn down.
+            try:
+                from database import async_session_maker as _maker
+            except ImportError:
+                # Some setups expose the factory under a different name
+                try:
+                    from database import AsyncSessionLocal as _maker
+                except ImportError:
+                    # Last resort: walk get_db's generator manually
+                    from database import get_db as _get_db
+                    gen = _get_db()
+                    bg_db = await gen.__anext__()
+                    try:
+                        await extract_and_save_memories(
+                            db=bg_db,
+                            user_id=user_id,
+                            user_message=user_message,
+                            ai_response=ai_response,
+                            conversation_id=conversation_id
+                        )
+                    finally:
+                        try:
+                            await gen.aclose()
+                        except Exception:
+                            pass
+                    return
+            
+            async with _maker() as bg_db:
+                await extract_and_save_memories(
+                    db=bg_db,
+                    user_id=user_id,
+                    user_message=user_message,
+                    ai_response=ai_response,
+                    conversation_id=conversation_id
+                )
+        except Exception as e:
+            # Background extraction must NEVER bubble up
+            logger.warning(f"#38 Background extraction failed: {e}")
+    
+    try:
+        asyncio.create_task(_runner())
+    except Exception as e:
+        logger.warning(f"#38 Could not schedule extraction task: {e}")
+
+
+# ============================================================================
+# build_system_prompt — #25 mode + #37 custom prompt + #38 memories
+# ============================================================================
+
 def build_system_prompt(
     mode: str,
     file_context: str = "",
     search_context: str = "",
     conv_context: str = "",
-    custom_user_prompt: Optional[str] = None
+    custom_user_prompt: Optional[str] = None,
+    user_memories_block: str = ""
 ) -> str:
     """
     Build the full system prompt based on mode and available context.
     
-    #37 — When the user has set a custom system prompt, it's prepended at the
-    very top so it influences ALL responses regardless of mode. The mode prompt
-    follows so users still get the focused behavior they expect when in
-    Email/Calendar/Code mode. The user's preferences win on style/tone, the
-    mode wins on capability focus.
+    Order (top → bottom):
+    1. #37 Custom user prompt — how the user wants the AI to talk
+    2. #38 User memories — facts about the user the AI should remember
+    3. Mode prompt — capability focus (normal/email/calendar/code)
+    4. File context — content of attached/referenced files
+    5. Search context — fresh web results
+    6. Conversation context — recent message history
+    
+    Why this order? Custom prompt wins on TONE (placed first). Memories win on
+    SUBSTANCE about the user (placed right after — the model "knows who it's
+    talking to" before mode-specific instructions kick in). Mode prompts win
+    on FOCUS for the current request.
     """
     parts = []
     
@@ -158,6 +298,11 @@ def build_system_prompt(
         parts.append("--- USER'S PERSONAL PREFERENCES ---")
         parts.append(custom_user_prompt)
         parts.append("--- END USER PREFERENCES ---")
+        parts.append("")  # blank line for readability
+    
+    # #38 — User memories: durable facts about the user across conversations
+    if user_memories_block:
+        parts.append(user_memories_block)
         parts.append("")  # blank line for readability
     
     # Base mode prompt (normal/email/calendar/code)
@@ -217,6 +362,7 @@ class ChatResponse(BaseModel):
     files_used: Optional[int] = None
     mode: Optional[str] = None  # NEW
     custom_prompt_applied: bool = False  # #37 — tells frontend whether to show badge
+    memories_recalled: int = 0  # #38 — how many memories the AI considered for this turn
 
 
 class ConversationResponse(BaseModel):
@@ -540,6 +686,7 @@ async def enhanced_chat(
     - FILE CONTEXT for document analysis!
     - AI MODE SYSTEM for focused responses!
     - #37 — CUSTOM USER SYSTEM PROMPTS (Pro feature)
+    - #38 — PERSISTENT USER MEMORY (Pro feature)
     """
 
     start_time = datetime.utcnow()
@@ -552,6 +699,10 @@ async def enhanced_chat(
         custom_user_prompt = await get_user_custom_system_prompt(db, authenticated_user_id)
         if custom_user_prompt:
             print(f"✨ Custom prompt active for user {authenticated_user_id[:8]}... ({len(custom_user_prompt)} chars)")
+        
+        # #38 — Recall user's persistent memories
+        user_memories_block = await get_user_memories_for_prompt(db, authenticated_user_id)
+        memories_recalled_count = user_memories_block.count("\n- ") if user_memories_block else 0
         
         initial_mode = chat_request.mode if chat_request.mode in VALID_MODES else "normal"
 
@@ -590,7 +741,8 @@ async def enhanced_chat(
                 model="llama3.2:1b",
                 latency_ms=0,
                 mode=current_mode,
-                custom_prompt_applied=False  # capabilities are static, no LLM call
+                custom_prompt_applied=False,  # capabilities are static, no LLM call
+                memories_recalled=0  # capability listing doesn't use memories
             )
 
         # ============================================
@@ -641,7 +793,7 @@ async def enhanced_chat(
         conv_context = context_manager.format_context_for_llm(conversation_id)
 
         # ============================================
-        # BUILD SYSTEM PROMPT — #25 mode + #37 custom prompt
+        # BUILD SYSTEM PROMPT — #25 mode + #37 custom prompt + #38 memories
         # ============================================
 
         system_prompt = build_system_prompt(
@@ -649,7 +801,8 @@ async def enhanced_chat(
             file_context=file_context,
             search_context=search_context,
             conv_context=conv_context,
-            custom_user_prompt=custom_user_prompt
+            custom_user_prompt=custom_user_prompt,
+            user_memories_block=user_memories_block
         )
 
         print(f"🎯 Mode: {current_mode}")
@@ -691,6 +844,15 @@ async def enhanced_chat(
         message_id = await save_message(db, conversation_id, "assistant", ai_response, model_used, latency_ms)
         context_manager.add_message(conversation_id, "assistant", ai_response)
 
+        # #38 — Schedule background memory extraction. Fire-and-forget.
+        # User's response is already being prepared; this runs in parallel.
+        schedule_memory_extraction(
+            user_id=authenticated_user_id,
+            user_message=chat_request.message,
+            ai_response=ai_response,
+            conversation_id=conversation_id
+        )
+
         return ChatResponse(
             response=ai_response,
             conversation_id=conversation_id,
@@ -705,7 +867,8 @@ async def enhanced_chat(
             model_quality_score=model_selection['quality_score'],
             files_used=files_used,
             mode=current_mode,
-            custom_prompt_applied=bool(custom_user_prompt)
+            custom_prompt_applied=bool(custom_user_prompt),
+            memories_recalled=memories_recalled_count
         )
 
     except Exception as e:
@@ -719,7 +882,7 @@ async def enhanced_chat(
 
 
 # ============================================================================
-# STREAMING CHAT ENDPOINT — #15 Real token streaming + #25 Mode + #37 Custom prompt
+# STREAMING CHAT ENDPOINT — #15 + #25 Mode + #37 Custom prompt + #38 Memories
 # ============================================================================
 
 @router.post("/chat/stream")
@@ -728,13 +891,15 @@ async def stream_chat(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    """Streaming chat endpoint using Server-Sent Events with AI Mode + custom prompt support"""
+    """Streaming chat endpoint using Server-Sent Events with AI Mode + custom prompt + memory support"""
     
-    # #37 — Resolve auth + custom prompt OUTSIDE the generator so we don't lose
-    # the request/db context when the streaming response starts. Once we yield
-    # the first token, the request scope can begin tearing down.
+    # #37 + #38 — Resolve auth + custom prompt + memory recall OUTSIDE the
+    # generator so we don't lose the request/db context when streaming starts.
+    # Once we yield the first token, the request scope can begin tearing down.
     authenticated_user_id = await get_authenticated_user_id(request, db)
     custom_user_prompt = await get_user_custom_system_prompt(db, authenticated_user_id)
+    user_memories_block = await get_user_memories_for_prompt(db, authenticated_user_id)
+    memories_recalled_count = user_memories_block.count("\n- ") if user_memories_block else 0
 
     async def generate():
         try:
@@ -751,7 +916,7 @@ async def stream_chat(
             await save_message(db, conversation_id, "user", chat_request.message)
             context_manager.add_message(conversation_id, "user", chat_request.message)
 
-            yield f"data: {json.dumps({'type': 'conversation_id', 'conversation_id': conversation_id, 'mode': current_mode, 'custom_prompt_applied': bool(custom_user_prompt)})}\n\n"
+            yield f"data: {json.dumps({'type': 'conversation_id', 'conversation_id': conversation_id, 'mode': current_mode, 'custom_prompt_applied': bool(custom_user_prompt), 'memories_recalled': memories_recalled_count})}\n\n"
 
             # FILE CONTEXT
             file_context = ""
@@ -788,18 +953,21 @@ async def stream_chat(
 
             conv_context = context_manager.format_context_for_llm(conversation_id)
 
-            # BUILD SYSTEM PROMPT — #25 mode + #37 custom prompt
+            # BUILD SYSTEM PROMPT — #25 mode + #37 custom prompt + #38 memories
             system_prompt = build_system_prompt(
                 mode=current_mode,
                 file_context=file_context,
                 search_context=search_context,
                 conv_context=conv_context,
-                custom_user_prompt=custom_user_prompt
+                custom_user_prompt=custom_user_prompt,
+                user_memories_block=user_memories_block
             )
 
             print(f"🎯 Stream mode: {current_mode}")
             if custom_user_prompt:
                 print(f"✨ Custom prompt active in stream ({len(custom_user_prompt)} chars)")
+            if user_memories_block:
+                print(f"🧠 {memories_recalled_count} memories injected into stream prompt")
 
             model_selection = model_router.choose_model(
                 query=chat_request.message,
@@ -827,7 +995,16 @@ async def stream_chat(
             assistant_msg_id = await save_message(db, conversation_id, "assistant", full_response, chosen_model, 0)
             context_manager.add_message(conversation_id, "assistant", full_response)
 
-            yield f"data: {json.dumps({'type': 'done', 'full_response': full_response, 'files_used': files_used, 'message_id': assistant_msg_id, 'conversation_id': conversation_id, 'mode': current_mode, 'custom_prompt_applied': bool(custom_user_prompt)})}\n\n"
+            # #38 — Schedule background memory extraction AFTER we send 'done'
+            # so it doesn't delay the user-perceived end of the stream.
+            schedule_memory_extraction(
+                user_id=authenticated_user_id,
+                user_message=chat_request.message,
+                ai_response=full_response,
+                conversation_id=conversation_id
+            )
+
+            yield f"data: {json.dumps({'type': 'done', 'full_response': full_response, 'files_used': files_used, 'message_id': assistant_msg_id, 'conversation_id': conversation_id, 'mode': current_mode, 'custom_prompt_applied': bool(custom_user_prompt), 'memories_recalled': memories_recalled_count})}\n\n"
 
         except Exception as e:
             print(f"❌ Stream error: {e}")
@@ -856,14 +1033,23 @@ async def regenerate_response(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    """Regenerate an AI response (respects conversation mode + #37 custom user prompt)"""
+    """
+    Regenerate an AI response (respects conversation mode + #37 custom user prompt + #38 memories).
+    
+    NOTE: regenerate does NOT trigger memory extraction. The user message hasn't
+    changed — the only thing different is the new AI response. Re-extracting
+    would either duplicate memories from the same user message or, worse,
+    create slightly different versions and trigger spurious supersedes.
+    """
 
     start_time = datetime.utcnow()
 
     try:
-        # #37 — Resolve auth + custom prompt
+        # #37 + #38 — Resolve auth + custom prompt + memory recall
         authenticated_user_id = await get_authenticated_user_id(request, db)
         custom_user_prompt = await get_user_custom_system_prompt(db, authenticated_user_id)
+        user_memories_block = await get_user_memories_for_prompt(db, authenticated_user_id)
+        memories_recalled_count = user_memories_block.count("\n- ") if user_memories_block else 0
         
         result = await db.execute(
             text("SELECT id, title, mode FROM conversations WHERE id = :conv_id"),
@@ -928,13 +1114,14 @@ async def regenerate_response(
 
         conv_context = context_manager.format_context_for_llm(regen_request.conversation_id)
 
-        # BUILD SYSTEM PROMPT — #25 mode + #37 custom prompt
+        # BUILD SYSTEM PROMPT — #25 mode + #37 custom prompt + #38 memories
         system_prompt = build_system_prompt(
             mode=current_mode,
             file_context=file_context,
             search_context=search_context,
             conv_context=conv_context,
-            custom_user_prompt=custom_user_prompt
+            custom_user_prompt=custom_user_prompt,
+            user_memories_block=user_memories_block
         )
 
         chosen_model = regen_request.model if regen_request.model else None
@@ -973,6 +1160,9 @@ async def regenerate_response(
 
         quality_score = model_router.models.get(chosen_model, {}).get("quality", 4)
 
+        # NOTE: deliberately NOT calling schedule_memory_extraction here.
+        # See docstring above for rationale.
+
         return ChatResponse(
             response=ai_response,
             conversation_id=regen_request.conversation_id,
@@ -987,7 +1177,8 @@ async def regenerate_response(
             model_quality_score=quality_score,
             files_used=files_used,
             mode=current_mode,
-            custom_prompt_applied=bool(custom_user_prompt)
+            custom_prompt_applied=bool(custom_user_prompt),
+            memories_recalled=memories_recalled_count
         )
 
     except Exception as e:
