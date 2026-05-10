@@ -196,6 +196,89 @@
         </div>
     </div>
 
+    <!-- ============================================
+         #39 — BOOK MEETING FROM EMAIL MODAL
+         ============================================ -->
+    <div id="book-meeting-overlay" class="bm-overlay" hidden>
+        <div class="bm-modal" role="dialog" aria-modal="true" aria-labelledby="bm-title">
+            <header class="bm-header">
+                <div class="bm-header-left">
+                    <span class="bm-icon">📅</span>
+                    <div>
+                        <h2 id="bm-title">Book meeting from email</h2>
+                        <p class="bm-subtitle" id="bm-subtitle">Reading thread…</p>
+                    </div>
+                </div>
+                <button class="bm-close" id="bm-close" aria-label="Close">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </header>
+
+            <!-- LOADING STATE -->
+            <div class="bm-state" id="bm-state-loading">
+                <div class="bm-spinner"></div>
+                <p>Reading thread, finding free slots…</p>
+            </div>
+
+            <!-- ERROR STATE -->
+            <div class="bm-state" id="bm-state-error" hidden>
+                <div class="bm-error-icon">⚠️</div>
+                <p id="bm-error-message">Something went wrong.</p>
+                <button class="bm-btn-secondary" id="bm-error-close">Close</button>
+            </div>
+
+            <!-- FORM STATE -->
+            <div class="bm-form" id="bm-state-form" hidden>
+                <div class="bm-section">
+                    <label class="bm-label">Meeting title</label>
+                    <input type="text" id="bm-title-input" class="bm-input" maxlength="200" />
+                </div>
+
+                <div class="bm-section">
+                    <label class="bm-label">Topic</label>
+                    <textarea id="bm-topic-input" class="bm-textarea" rows="2" maxlength="500" placeholder="What this meeting is about (added to invite description)"></textarea>
+                </div>
+
+                <div class="bm-section">
+                    <label class="bm-label">Attendees <span class="bm-hint" id="bm-attendees-count">0 selected</span></label>
+                    <div class="bm-attendees" id="bm-attendees"></div>
+                </div>
+
+                <div class="bm-section">
+                    <label class="bm-label">Pick a time <span class="bm-hint" id="bm-duration-hint"></span></label>
+                    <div class="bm-slots" id="bm-slots"></div>
+                </div>
+
+                <div class="bm-section bm-meet-row">
+                    <label class="bm-toggle">
+                        <input type="checkbox" id="bm-add-meet" checked />
+                        <span class="bm-toggle-track"></span>
+                        <span class="bm-toggle-label">Add Google Meet link</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- SUCCESS STATE -->
+            <div class="bm-state" id="bm-state-success" hidden>
+                <div class="bm-success-icon">✓</div>
+                <h3 id="bm-success-title">Meeting booked</h3>
+                <p id="bm-success-message">Invites sent. Calendar event created.</p>
+                <div class="bm-success-actions">
+                    <a id="bm-event-link" href="#" target="_blank" rel="noopener" class="bm-btn-primary">Open in Calendar</a>
+                    <button class="bm-btn-secondary" id="bm-success-close">Done</button>
+                </div>
+            </div>
+
+            <footer class="bm-footer" id="bm-footer" hidden>
+                <button class="bm-btn-secondary" id="bm-cancel">Cancel</button>
+                <button class="bm-btn-primary" id="bm-confirm" disabled>Book meeting</button>
+            </footer>
+        </div>
+    </div>
+
     <!-- Scripts -->
     <script src="js/auth.js"></script>
     <script src="js/theme.js"></script>

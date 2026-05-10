@@ -1184,11 +1184,6 @@ async function bookSlot(start, end, button) {
     button.disabled = true;
     button.textContent = '⏳ Booking...';
     
-    // #35 — Free slots are pre-checked for emptiness, so conflict check is
-    // unlikely to find anything, but we still pass through the same path
-    // for consistency. If for some reason a conflict appears (e.g., user
-    // booked from another tab between the slot search and this click),
-    // the modal will show.
     const eventPayload = {
         summary: title,
         start: start,
@@ -1279,28 +1274,12 @@ async function handleCalendarMessage(message) {
 
 // ============================================================================
 // #35 — CONFLICT-AWARE EVENT CREATION
-// Centralised create-event flow that runs the conflict pre-check, shows
-// the warning modal if conflicts exist, and creates the event (with
-// force_create=true) when the user confirms.
 // ============================================================================
 
-/**
- * Attempt to create a calendar event, with automatic conflict detection.
- *
- * @param {Object} eventPayload - same shape as POST /api/v1/calendar/events body
- *                                (summary, start, end, description?, location?,
- *                                 attendees?, add_meet?, timezone?)
- * @param {Object} callbacks
- *   @param {Function} callbacks.onSuccess - called with the created event object
- *   @param {Function} callbacks.onCancel  - called when user cancels at the modal
- *   @param {Function} callbacks.onError   - called with an error message string
- */
 async function attemptCreateEventWithConflictCheck(eventPayload, callbacks) {
     const { onSuccess, onCancel, onError } = callbacks || {};
     
     try {
-        // First attempt — without force_create, so the backend runs its
-        // pre-check and may return 409 with the conflicts list.
         const response = await authFetch('/api/v1/calendar/events', {
             method: 'POST',
             body: JSON.stringify({
@@ -1316,7 +1295,6 @@ async function attemptCreateEventWithConflictCheck(eventPayload, callbacks) {
         }
         
         if (response.status === 409) {
-            // Conflicts found — show modal, let user decide
             const errBody = await response.json();
             const detail = errBody.detail || {};
             const conflicts = detail.conflicts || [];
@@ -1328,7 +1306,6 @@ async function attemptCreateEventWithConflictCheck(eventPayload, callbacks) {
             
             showConflictModal(conflicts, proposed, {
                 onConfirm: async () => {
-                    // User chose "Create anyway" — re-send with force_create=true
                     try {
                         const retryResponse = await authFetch('/api/v1/calendar/events', {
                             method: 'POST',
@@ -1356,7 +1333,6 @@ async function attemptCreateEventWithConflictCheck(eventPayload, callbacks) {
             return;
         }
         
-        // Some other non-OK status
         const errData = await response.json().catch(() => ({}));
         if (onError) onError(errData.detail || `Server returned ${response.status}`);
         
@@ -1365,21 +1341,12 @@ async function attemptCreateEventWithConflictCheck(eventPayload, callbacks) {
     }
 }
 
-/**
- * Render the conflict warning modal and wire up its buttons.
- *
- * Uses inline styles (cssText) so no styles.css change is required.
- * Colors use existing CSS custom properties where available with
- * sensible fallbacks for both dark and light mode.
- */
 function showConflictModal(conflicts, proposed, callbacks) {
     const { onConfirm, onCancel } = callbacks || {};
     
-    // Remove any existing conflict modal so we never stack them
     const existing = document.querySelector('.conflict-modal-overlay');
     if (existing) existing.remove();
     
-    // ----- Overlay (full-screen backdrop) -----
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay conflict-modal-overlay';
     overlay.style.cssText = `
@@ -1399,7 +1366,6 @@ function showConflictModal(conflicts, proposed, callbacks) {
         animation: conflictFadeIn 0.18s ease-out;
     `;
     
-    // ----- Modal panel -----
     const panel = document.createElement('div');
     panel.className = 'conflict-modal-panel';
     panel.style.cssText = `
@@ -1416,7 +1382,6 @@ function showConflictModal(conflicts, proposed, callbacks) {
         animation: conflictSlideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
     `;
     
-    // ----- Header (warning icon + title) -----
     const conflictWord = conflicts.length === 1 ? 'conflict' : 'conflicts';
     const header = document.createElement('div');
     header.style.cssText = `
@@ -1447,7 +1412,6 @@ function showConflictModal(conflicts, proposed, callbacks) {
         </div>
     `;
     
-    // ----- Proposed event block -----
     const proposedBlock = document.createElement('div');
     proposedBlock.style.cssText = `
         padding: 18px 28px 14px;
@@ -1473,7 +1437,6 @@ function showConflictModal(conflicts, proposed, callbacks) {
         </div>
     `;
     
-    // ----- Conflicts list -----
     const conflictsBlock = document.createElement('div');
     conflictsBlock.style.cssText = `
         padding: 18px 28px;
@@ -1521,7 +1484,6 @@ function showConflictModal(conflicts, proposed, callbacks) {
     
     conflictsBlock.innerHTML = conflictsHTML;
     
-    // ----- Action buttons -----
     const actions = document.createElement('div');
     actions.style.cssText = `
         padding: 18px 28px 24px;
@@ -1580,7 +1542,6 @@ function showConflictModal(conflicts, proposed, callbacks) {
     actions.appendChild(cancelBtn);
     actions.appendChild(confirmBtn);
     
-    // ----- Inject keyframe animations once -----
     if (!document.getElementById('conflictModalKeyframes')) {
         const styleTag = document.createElement('style');
         styleTag.id = 'conflictModalKeyframes';
@@ -1597,7 +1558,6 @@ function showConflictModal(conflicts, proposed, callbacks) {
         document.head.appendChild(styleTag);
     }
     
-    // ----- Assemble -----
     panel.appendChild(header);
     panel.appendChild(proposedBlock);
     panel.appendChild(conflictsBlock);
@@ -1605,7 +1565,6 @@ function showConflictModal(conflicts, proposed, callbacks) {
     overlay.appendChild(panel);
     document.body.appendChild(overlay);
     
-    // ----- Wire up dismiss handlers -----
     const dismiss = (action) => {
         overlay.remove();
         if (action === 'confirm' && onConfirm) onConfirm();
@@ -1615,18 +1574,13 @@ function showConflictModal(conflicts, proposed, callbacks) {
     cancelBtn.onclick = () => dismiss('cancel');
     confirmBtn.onclick = () => dismiss('confirm');
     
-    // Click on overlay (outside panel) → cancel
     overlay.addEventListener('click', (e) => {
         if (e.target === overlay) dismiss('cancel');
     });
     
-    // Focus the cancel button by default — safer choice on Enter key
     setTimeout(() => cancelBtn.focus(), 50);
 }
 
-/**
- * Helper: turn an overlap_type code into a user-friendly label.
- */
 function formatOverlapLabel(overlapType) {
     switch (overlapType) {
         case 'contains':       return 'Your new event would fully contain this one';
@@ -1638,9 +1592,6 @@ function formatOverlapLabel(overlapType) {
     }
 }
 
-/**
- * Helper: format a start/end ISO pair as "Fri, May 02 · 3:00 PM – 4:00 PM"
- */
 function formatEventTimeDisplay(startStr, endStr) {
     if (!startStr) return '';
     try {
@@ -1666,7 +1617,6 @@ function formatEventTimeDisplay(startStr, endStr) {
 
 // ============================================================================
 // AI INTENT CLASSIFICATION — #33.5
-// AI classifier with regex fallback. Handles natural language, Hindi, slang.
 // ============================================================================
 
 async function classifyIntent(message, mode) {
@@ -1760,11 +1710,7 @@ async function handleCalendarMessageWithIntent(message, action, params) {
         return;
     }
     
-    // ====== #35 — create_event with conflict pre-check ======
     if (action === 'create_event') {
-        // Pull params from the AI classifier; bail out gracefully if any
-        // critical piece is missing (we don't want to silently create a
-        // bad event).
         const summary = params.summary || params.title || 'New event';
         const start = params.start;
         const end = params.end;
@@ -1806,7 +1752,6 @@ async function handleCalendarMessageWithIntent(message, action, params) {
             },
             onCancel: () => {
                 removeTypingIndicator();
-                // Cancel message is added inside attemptCreateEventWithConflictCheck
             },
             onError: (errMsg) => {
                 removeTypingIndicator();
@@ -1816,13 +1761,6 @@ async function handleCalendarMessageWithIntent(message, action, params) {
         return;
     }
     
-    // ====== #36 — ask_about_calendar (AI reasoning) ======
-    // The classifier routes reasoning questions ("am I overbooked?",
-    // "how's my week?", "kal busy hu kya?", "when can I do deep work?") here.
-    // We hit /api/v1/calendar/analyze which runs the full reasoning pipeline:
-    // fetch events → compute structural facts → Groq advisor → prose response.
-    // The response is streamed into chat as a normal assistant message for a
-    // conversational feel — no card UI, no structured table, just insight.
     if (action === 'ask_about_calendar') {
         const range = params.range || 'week';
         const question = params.raw_query || message;
@@ -1843,9 +1781,6 @@ async function handleCalendarMessageWithIntent(message, action, params) {
             
             if (response.ok) {
                 const data = await response.json();
-                // Stream the advisor's prose into chat as a normal assistant message.
-                // streamAssistantMessage gives us the typewriter effect — feels
-                // conversational, exactly the vibe we want for AI reasoning.
                 streamAssistantMessage(data.response || 'I could not analyze your schedule right now.');
             } else {
                 let errMsg = 'Could not analyze your calendar.';
@@ -1862,7 +1797,6 @@ async function handleCalendarMessageWithIntent(message, action, params) {
         return;
     }
     
-    // Anything else → fall back to regex handler
     await handleCalendarMessage(message);
 }
 
@@ -1912,7 +1846,6 @@ async function handleGmailMessageWithIntent(message, action, params) {
         return;
     }
     
-    // Fallback to regex-based handler
     await handleGmailMessage(message);
 }
 
@@ -2136,11 +2069,27 @@ async function handleSearchEmailIntent(message) {
     }
 }
 
+// ============================================================================
+// #39 — displayEmailCards MODIFIED to include 📅 Book Meeting button
+// Tracks the most-recent thread for the natural-language trigger.
+// ============================================================================
+
 function displayEmailCards(emails, title = 'Your Emails') {
     const container = document.getElementById('messagesContainer');
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message assistant';
-    const emailCardsHtml = emails.map(email => `
+
+    // #39 — Track first email's thread id so NL trigger knows which thread to use
+    if (emails && emails.length > 0) {
+        const firstThreadId = emails[0].thread_id || emails[0].id;
+        if (typeof BookMeeting !== 'undefined' && BookMeeting.setLastThread) {
+            BookMeeting.setLastThread(firstThreadId);
+        }
+    }
+
+    const emailCardsHtml = emails.map(email => {
+        const threadId = email.thread_id || email.id;
+        return `
         <div class="email-card ${email.is_unread ? 'unread' : ''}">
             <div class="email-card-header">
                 <div class="email-from">${escapeHtml(email.from)}</div>
@@ -2150,10 +2099,13 @@ function displayEmailCards(emails, title = 'Your Emails') {
             <div class="email-snippet">${escapeHtml(email.snippet)}</div>
             <div class="email-actions">
                 <button class="email-action-btn" onclick="replyToEmail('${email.id}', '${escapeHtml(email.from).replace(/'/g, "\\'")}', '${escapeHtml(email.subject).replace(/'/g, "\\'")}')">↩ Reply</button>
+                <button class="email-action-btn email-book-btn" onclick="bookMeetingFromEmail('${threadId}')" title="Book a meeting from this email thread">📅 Book Meeting</button>
                 ${email.is_unread ? `<button class="email-action-btn" onclick="markRead('${email.id}', this)">✓ Mark Read</button>` : ''}
             </div>
         </div>
-    `).join('');
+    `;
+    }).join('');
+
     messageDiv.innerHTML = `
         <div class="message-header">
             <div class="avatar assistant">✦</div>
@@ -2166,6 +2118,16 @@ function displayEmailCards(emails, title = 'Your Emails') {
     `;
     container.appendChild(messageDiv);
     scrollToBottom();
+}
+
+// #39 — helper invoked by the 📅 button on each email card
+function bookMeetingFromEmail(threadId) {
+    if (typeof BookMeeting === 'undefined') {
+        alert('Book Meeting feature not loaded. Refresh the page.');
+        return;
+    }
+    BookMeeting.setLastThread(threadId);
+    BookMeeting.open(threadId);
 }
 
 async function markRead(messageId, button) {
@@ -3185,6 +3147,7 @@ function toggleTheme() {
 
 // ============================================================================
 // SEND MESSAGE — AI Intent first (#33.5), regex fallback (#24-#28 #32 #33)
+// #39 — NL trigger for book-meeting-from-email runs FIRST
 // ============================================================================
 
 async function sendMessage() {
@@ -3192,6 +3155,23 @@ async function sendMessage() {
     const input = document.getElementById('messageInput');
     const message = input.value.trim();
     if (!message && attachedFiles.length === 0) return;
+
+    // ============================================================
+    // #39 — Natural language trigger for book-meeting-from-email
+    // Catches "book a meeting from this email" and opens the modal
+    // directly using the most recently displayed thread.
+    // ============================================================
+    if (message && checkBookMeetingFromEmailIntent(message)) {
+        input.value = '';
+        input.style.height = 'auto';
+        addUserMessage(message);
+        if (typeof BookMeeting !== 'undefined' && BookMeeting.openLatest) {
+            BookMeeting.openLatest();
+        } else {
+            addAssistantMessage('Book Meeting feature not available. Refresh the page.');
+        }
+        return;
+    }
 
     // ============================================================
     // #33.5 — AI Intent Classification (with regex fallback)
@@ -3393,6 +3373,29 @@ async function sendMessage() {
     }
 }
 
+// #39 — helper for the NL trigger above
+function checkBookMeetingFromEmailIntent(message) {
+    const m = (message || '').toLowerCase().trim();
+    const triggers = [
+        'book a meeting from this email',
+        'book meeting from this email',
+        'book a meeting from email',
+        'book meeting from email',
+        'schedule a meeting from this email',
+        'schedule meeting from this email',
+        'schedule from this email',
+        'schedule from email',
+        'create a meeting from this email',
+        'create meeting from this email',
+        'set up a meeting from this email',
+        'meeting from this email',
+        'meeting from this thread',
+        'book from this email',
+        'book from this thread',
+    ];
+    return triggers.some(t => m.includes(t));
+}
+
 // ============================================================================
 // REGENERATE RESPONSE
 // ============================================================================
@@ -3462,9 +3465,6 @@ function copyCode(button) {
 
 // ============================================================================
 // #38 — PERSISTENT USER MEMORY (settings panel section)
-// Renders the memory list inside the existing #37 settings panel, beneath the
-// custom prompt section. Reads /api/v1/memories on panel open, supports
-// edit/delete per-memory, "Forget everything" wipe, and pause-toggle.
 // ============================================================================
 
 const MEMORY_CATEGORY_LABELS = {
@@ -3473,14 +3473,9 @@ const MEMORY_CATEGORY_LABELS = {
     context: { label: 'Context', icon: '🎯' }
 };
 
-/**
- * Inject the memory section into an open settings panel.
- * Called from openSettingsPanel after the custom prompt section is built.
- */
 async function renderMemorySection(panelBody) {
     if (!panelBody) return;
     
-    // Container with placeholder so the section appears even before fetch completes
     const memorySection = document.createElement('div');
     memorySection.id = 'memorySection';
     memorySection.style.cssText = `
@@ -3567,16 +3562,10 @@ async function renderMemorySection(panelBody) {
     
     panelBody.appendChild(memorySection);
     
-    // Wire up handlers, then load data
     wireMemorySectionHandlers();
     await loadMemories();
 }
 
-
-/**
- * Wire up the static buttons + toggle. Each is hooked to its respective
- * server endpoint via authFetch.
- */
 function wireMemorySectionHandlers() {
     const pauseToggle = document.getElementById('memoryPauseToggle');
     const wipeBtn = document.getElementById('memoryWipeBtn');
@@ -3591,7 +3580,6 @@ function wireMemorySectionHandlers() {
                     body: JSON.stringify({ paused: newPaused })
                 });
                 if (!response.ok) {
-                    // Revert on failure
                     pauseToggle.checked = !newPaused;
                     updatePauseSliderVisual(!newPaused);
                     showMemoryToast('Could not update pause state', 'error');
@@ -3631,11 +3619,6 @@ function wireMemorySectionHandlers() {
     }
 }
 
-
-/**
- * Visual update for the pause toggle slider — moves the dot, changes color.
- * Separate from the state because we may need to revert on server error.
- */
 function updatePauseSliderVisual(isPaused) {
     const slider = document.getElementById('memoryPauseSlider');
     const dot = document.getElementById('memoryPauseSliderDot');
@@ -3649,11 +3632,6 @@ function updatePauseSliderVisual(isPaused) {
     }
 }
 
-
-/**
- * Fetch memories from server and render the list. Also updates the count
- * badge, pause toggle state, and wipe button visibility (hidden when 0).
- */
 async function loadMemories() {
     const listEl = document.getElementById('memoryList');
     const countBadge = document.getElementById('memoryCountBadge');
@@ -3676,26 +3654,22 @@ async function loadMemories() {
         }
         const data = await response.json();
         
-        // Update count badge
         const used = data.active_count || 0;
         const cap = data.cap || 10;
         const isPro = !!data.is_pro;
         if (isPro) {
             countBadge.innerHTML = `<span style="opacity: 0.85;">${used} saved · unlimited</span>`;
         } else {
-            // Color the badge red if at cap
             const atCap = used >= cap;
             const color = atCap ? '#ef4444' : 'inherit';
             countBadge.innerHTML = `<span style="color: ${color};">${used} of ${cap} used</span>`;
         }
         
-        // Sync pause toggle (without firing the change event)
         if (pauseToggle) {
             pauseToggle.checked = !!data.paused;
             updatePauseSliderVisual(!!data.paused);
         }
         
-        // Wipe button visible only if there's something to wipe
         if (wipeBtn) {
             wipeBtn.style.display = (data.memories && data.memories.length > 0) ? 'inline-block' : 'none';
             wipeBtn.disabled = false;
@@ -3711,11 +3685,6 @@ async function loadMemories() {
     }
 }
 
-
-/**
- * Render the memories list, grouped by category.
- * Empty state shows a helpful "no memories yet" message.
- */
 function renderMemoriesList(memories) {
     const listEl = document.getElementById('memoryList');
     if (!listEl) return;
@@ -3741,7 +3710,6 @@ function renderMemoriesList(memories) {
         return;
     }
     
-    // Group by category
     const grouped = { identity: [], preference: [], context: [] };
     memories.forEach(m => {
         const cat = (m.category || 'context').toLowerCase();
@@ -3766,7 +3734,6 @@ function renderMemoriesList(memories) {
     
     listEl.innerHTML = html;
     
-    // Wire up the per-row buttons (delegated; one listener for each row)
     listEl.querySelectorAll('[data-memory-id]').forEach(row => {
         const id = row.dataset.memoryId;
         const editBtn = row.querySelector('.memory-edit-btn');
@@ -3775,7 +3742,6 @@ function renderMemoriesList(memories) {
         if (deleteBtn) deleteBtn.addEventListener('click', () => deleteSingleMemory(id, row));
     });
 }
-
 
 function renderSingleMemory(memory) {
     const id = memory.id;
@@ -3824,11 +3790,6 @@ function renderSingleMemory(memory) {
     `;
 }
 
-
-/**
- * Inline edit a single memory. Replaces the content with a textarea +
- * Save/Cancel buttons. On save, calls PUT /memories/{id} and reloads list.
- */
 function startEditMemory(memoryId, rowEl) {
     const wrap = rowEl.querySelector('.memory-content-wrap');
     const display = rowEl.querySelector('.memory-content-display');
@@ -3837,7 +3798,6 @@ function startEditMemory(memoryId, rowEl) {
     
     const originalContent = display.textContent;
     
-    // Hide action buttons during edit
     actions.style.display = 'none';
     
     wrap.innerHTML = `
@@ -3939,21 +3899,17 @@ function startEditMemory(memoryId, rowEl) {
     });
 }
 
-
 async function deleteSingleMemory(memoryId, rowEl) {
     if (!confirm('Delete this memory? OmniAI will no longer remember it.')) return;
     
-    // Optimistic UI: fade the row immediately
     rowEl.style.opacity = '0.4';
     rowEl.style.pointerEvents = 'none';
     
     try {
         const response = await authFetch(`/api/v1/memories/${memoryId}`, { method: 'DELETE' });
         if (response.ok) {
-            // Reload list (gives accurate count + handles empty state)
             await loadMemories();
         } else {
-            // Revert on failure
             rowEl.style.opacity = '1';
             rowEl.style.pointerEvents = '';
             showMemoryToast('Could not delete memory', 'error');
@@ -3965,13 +3921,7 @@ async function deleteSingleMemory(memoryId, rowEl) {
     }
 }
 
-
-/**
- * Tiny toast notification for memory operations. Floats top-center
- * of the settings panel, auto-dismisses after 2.5 seconds.
- */
 function showMemoryToast(message, type) {
-    // Remove any existing toast first so they don't stack
     const existing = document.getElementById('memoryToast');
     if (existing) existing.remove();
     
@@ -4003,7 +3953,6 @@ function showMemoryToast(message, type) {
     `;
     toast.textContent = message;
     
-    // Anchor inside the settings panel if it exists, otherwise body
     const panel = document.querySelector('.settings-panel');
     if (panel) {
         panel.style.position = 'relative';
@@ -4018,3 +3967,345 @@ function showMemoryToast(message, type) {
         setTimeout(() => toast.remove(), 280);
     }, 2500);
 }
+
+// ============================================================================
+// #39 — BOOK MEETING FROM EMAIL
+// Drives the email→calendar bridge modal. Two-step flow:
+//   1. open(threadId) → calls /prepare → renders form with proposed slots
+//   2. user picks slot → calls /confirm → shows success with calendar link
+// ============================================================================
+const BookMeeting = (() => {
+    const PREPARE_URL = '/api/v1/calendar/book-from-email/prepare';
+    const CONFIRM_URL = '/api/v1/calendar/book-from-email/confirm';
+
+    // Track the most recently displayed email thread for the NL trigger
+    let lastThreadId = null;
+
+    let state = {
+        threadId: null,
+        intent: null,
+        slots: [],
+        selectedSlotIdx: -1,
+        selectedAttendees: new Set()
+    };
+
+    const els = {};
+
+    function cacheEls() {
+        els.overlay = document.getElementById('book-meeting-overlay');
+        els.close = document.getElementById('bm-close');
+        els.subtitle = document.getElementById('bm-subtitle');
+
+        els.stateLoading = document.getElementById('bm-state-loading');
+        els.stateError = document.getElementById('bm-state-error');
+        els.stateForm = document.getElementById('bm-state-form');
+        els.stateSuccess = document.getElementById('bm-state-success');
+        els.errorMessage = document.getElementById('bm-error-message');
+        els.errorClose = document.getElementById('bm-error-close');
+
+        els.titleInput = document.getElementById('bm-title-input');
+        els.topicInput = document.getElementById('bm-topic-input');
+        els.attendeesWrap = document.getElementById('bm-attendees');
+        els.attendeesCount = document.getElementById('bm-attendees-count');
+        els.slotsWrap = document.getElementById('bm-slots');
+        els.durationHint = document.getElementById('bm-duration-hint');
+        els.addMeet = document.getElementById('bm-add-meet');
+
+        els.footer = document.getElementById('bm-footer');
+        els.cancel = document.getElementById('bm-cancel');
+        els.confirm = document.getElementById('bm-confirm');
+
+        els.successTitle = document.getElementById('bm-success-title');
+        els.successMessage = document.getElementById('bm-success-message');
+        els.eventLink = document.getElementById('bm-event-link');
+        els.successClose = document.getElementById('bm-success-close');
+    }
+
+    async function apiCall(url, options = {}) {
+        if (typeof authFetch === 'function') {
+            return authFetch(url, options);
+        }
+        const token = (typeof getAccessToken === 'function')
+            ? getAccessToken()
+            : (localStorage.getItem('access_token') || localStorage.getItem('token'));
+        const headers = Object.assign(
+            { 'Content-Type': 'application/json' },
+            options.headers || {},
+            token ? { 'Authorization': `Bearer ${token}` } : {}
+        );
+        return fetch(url, Object.assign({}, options, { headers }));
+    }
+
+    function escapeHtmlSafe(s) {
+        if (s == null) return '';
+        return String(s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    }
+
+    function setLastThread(threadId) {
+        if (threadId) lastThreadId = threadId;
+    }
+
+    async function callPrepare(threadId) {
+        const res = await apiCall(PREPARE_URL, {
+            method: 'POST',
+            body: JSON.stringify({ thread_id: threadId })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            throw new Error(data.detail || data.error || `Failed (${res.status})`);
+        }
+        if (data.ok === false) {
+            throw new Error(data.error || 'Could not prepare meeting');
+        }
+        return data;
+    }
+
+    async function callConfirm(payload) {
+        const res = await apiCall(CONFIRM_URL, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            throw new Error(data.detail || data.error || `Failed (${res.status})`);
+        }
+        if (data.success === false) {
+            throw new Error(data.error || 'Could not create event');
+        }
+        return data;
+    }
+
+    async function open(threadId) {
+        if (!threadId) {
+            alert('No email thread selected. Click an email first, then try again.');
+            return;
+        }
+        if (!els.overlay) cacheEls();
+        if (!els.overlay) {
+            alert('Book Meeting modal not found in HTML. Make sure the modal markup is in index.html.');
+            return;
+        }
+
+        state.threadId = threadId;
+        state.intent = null;
+        state.slots = [];
+        state.selectedSlotIdx = -1;
+        state.selectedAttendees = new Set();
+
+        showState('loading');
+        els.overlay.hidden = false;
+        els.subtitle.textContent = 'Reading thread…';
+
+        try {
+            const data = await callPrepare(threadId);
+            state.intent = data.intent || {};
+            state.slots = data.slots || [];
+            renderForm();
+            showState('form');
+        } catch (e) {
+            showError(e.message || 'Failed to prepare meeting');
+        }
+    }
+
+    function openLatest() {
+        if (!lastThreadId) {
+            alert('Open or load an email first, then say "book a meeting from this email".');
+            return;
+        }
+        open(lastThreadId);
+    }
+
+    function close() {
+        if (els.overlay) els.overlay.hidden = true;
+        state = {
+            threadId: null, intent: null, slots: [],
+            selectedSlotIdx: -1, selectedAttendees: new Set()
+        };
+    }
+
+    function showState(name) {
+        els.stateLoading.hidden = name !== 'loading';
+        els.stateError.hidden = name !== 'error';
+        els.stateForm.hidden = name !== 'form';
+        els.stateSuccess.hidden = name !== 'success';
+        els.footer.hidden = name !== 'form';
+    }
+
+    function showError(msg) {
+        els.errorMessage.textContent = msg || 'Something went wrong.';
+        showState('error');
+    }
+
+    function renderForm() {
+        const intent = state.intent;
+        els.subtitle.textContent = intent.thread_subject || 'Meeting from email';
+        els.titleInput.value = intent.suggested_title || 'Meeting';
+        els.topicInput.value = intent.topic_summary || '';
+        els.durationHint.textContent = `${intent.duration_minutes || 30} min`;
+
+        // Attendees — pre-select all
+        state.selectedAttendees = new Set();
+        const attendees = intent.suggested_attendees || [];
+        if (attendees.length === 0) {
+            els.attendeesWrap.innerHTML = `<div class="bm-slots-empty">No attendees detected in thread</div>`;
+        } else {
+            els.attendeesWrap.innerHTML = attendees.map(a => {
+                state.selectedAttendees.add(a.email);
+                const role = (a.role || '').toUpperCase();
+                return `
+                    <button type="button" class="bm-attendee-chip selected" data-email="${escapeHtmlSafe(a.email)}">
+                        <span>${escapeHtmlSafe(a.name || a.email)}</span>
+                        ${role ? `<span class="bm-attendee-role">${escapeHtmlSafe(role)}</span>` : ''}
+                    </button>
+                `;
+            }).join('');
+            els.attendeesWrap.querySelectorAll('.bm-attendee-chip').forEach(chip => {
+                chip.addEventListener('click', () => {
+                    const email = chip.dataset.email;
+                    if (state.selectedAttendees.has(email)) {
+                        state.selectedAttendees.delete(email);
+                        chip.classList.remove('selected');
+                    } else {
+                        state.selectedAttendees.add(email);
+                        chip.classList.add('selected');
+                    }
+                    updateAttendeeCount();
+                });
+            });
+        }
+        updateAttendeeCount();
+
+        // Slots
+        if (state.slots.length === 0) {
+            els.slotsWrap.innerHTML = `<div class="bm-slots-empty">No free slots in next 7 days. Try a shorter duration or check your calendar.</div>`;
+        } else {
+            els.slotsWrap.innerHTML = state.slots.map((s, i) => {
+                const labels = formatSlot(s);
+                return `
+                    <button type="button" class="bm-slot" data-idx="${i}">
+                        <div>
+                            <div class="bm-slot-day">${escapeHtmlSafe(labels.day)}</div>
+                            <div class="bm-slot-time">${escapeHtmlSafe(labels.time)}</div>
+                        </div>
+                        <span class="bm-slot-check"></span>
+                    </button>
+                `;
+            }).join('');
+            els.slotsWrap.querySelectorAll('.bm-slot').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const idx = parseInt(btn.dataset.idx, 10);
+                    state.selectedSlotIdx = idx;
+                    els.slotsWrap.querySelectorAll('.bm-slot').forEach(b => b.classList.remove('selected'));
+                    btn.classList.add('selected');
+                    els.confirm.disabled = false;
+                });
+            });
+        }
+
+        els.confirm.disabled = true;
+    }
+
+    function updateAttendeeCount() {
+        const n = state.selectedAttendees.size;
+        els.attendeesCount.textContent = `${n} selected`;
+    }
+
+    function formatSlot(slot) {
+        if (slot.day_label && slot.time_label) {
+            return { day: slot.day_label, time: slot.time_label };
+        }
+        if (slot.label) {
+            return { day: slot.label, time: '' };
+        }
+        try {
+            const start = new Date(slot.start);
+            const end = new Date(slot.end);
+            const dayOpts = { weekday: 'short', month: 'short', day: 'numeric' };
+            const timeOpts = { hour: 'numeric', minute: '2-digit', hour12: true };
+            const day = start.toLocaleDateString('en-IN', dayOpts);
+            const time = `${start.toLocaleTimeString('en-IN', timeOpts)} – ${end.toLocaleTimeString('en-IN', timeOpts)}`;
+            return { day, time };
+        } catch {
+            return { day: slot.start || 'Slot', time: slot.end || '' };
+        }
+    }
+
+    async function handleConfirm() {
+        if (state.selectedSlotIdx < 0) return;
+        const slot = state.slots[state.selectedSlotIdx];
+        const title = (els.titleInput.value || '').trim();
+        if (!title) {
+            els.titleInput.focus();
+            return;
+        }
+
+        const payload = {
+            thread_id: state.threadId,
+            title: title,
+            start: slot.start,
+            end: slot.end,
+            attendees: Array.from(state.selectedAttendees),
+            topic_summary: (els.topicInput.value || '').trim(),
+            add_meet: !!els.addMeet.checked,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata'
+        };
+
+        els.confirm.disabled = true;
+        els.confirm.textContent = 'Booking…';
+
+        try {
+            const data = await callConfirm(payload);
+            const event = data.event || {};
+            const link = event.htmlLink || event.html_link || event.url || '#';
+            els.eventLink.href = link;
+            if (link === '#') els.eventLink.style.display = 'none';
+            els.successMessage.textContent = state.selectedAttendees.size > 0
+                ? `Invites sent to ${state.selectedAttendees.size} attendee${state.selectedAttendees.size === 1 ? '' : 's'}.`
+                : 'Calendar event created.';
+            showState('success');
+        } catch (e) {
+            showError(e.message || 'Failed to book meeting');
+        } finally {
+            els.confirm.disabled = false;
+            els.confirm.textContent = 'Book meeting';
+        }
+    }
+
+    function init() {
+        cacheEls();
+        if (!els.overlay) {
+            console.warn('#39 BookMeeting: modal not found in DOM. Skipping init.');
+            return;
+        }
+
+        els.close.addEventListener('click', close);
+        els.cancel.addEventListener('click', close);
+        els.errorClose.addEventListener('click', close);
+        els.successClose.addEventListener('click', close);
+
+        els.overlay.addEventListener('click', (e) => {
+            if (e.target === els.overlay) close();
+        });
+
+        els.confirm.addEventListener('click', handleConfirm);
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !els.overlay.hidden) close();
+        });
+
+        console.log('#39 BookMeeting initialized');
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
+    return { open, openLatest, setLastThread, close };
+})();
+
+// Expose globally so inline onclick handlers can call it
+window.BookMeeting = BookMeeting;
