@@ -1,6 +1,8 @@
 """
 OmniAI Gmail Service
 Handles OAuth2 flow and Gmail API calls
+
+#39 — Now also exposes get_thread_by_id() for the email→calendar bridge.
 """
 
 import os
@@ -276,3 +278,140 @@ def get_unread_count(token_data: Dict[str, Any]) -> int:
     except Exception as e:
         logger.error(f"Error getting unread count: {e}")
         return 0
+
+
+# ============================================================================
+# #39 — Email → Calendar Bridge: Thread fetching
+# Used by services/email_to_calendar.py to pull the full thread context so
+# the AI can extract meeting intent (subject, attendees, suggested duration).
+# ============================================================================
+
+def get_thread_by_id(token_data: Dict[str, Any], thread_id: str) -> Optional[Dict]:
+    """
+    Fetch a full Gmail thread by its threadId, return all messages with
+    sender/recipients/body/subject/date in a flat dict.
+
+    Returns None if the thread doesn't exist or can't be read. Caller
+    should treat None as "thread unavailable" and fall back gracefully.
+
+    Output shape:
+    {
+        'thread_id': '...',
+        'subject': 'most recent subject in thread',
+        'message_count': 3,
+        'participants': [
+            {'name': '...', 'email': '...', 'role': 'sender' | 'to' | 'cc'}
+        ],
+        'unique_emails': ['a@x.com', 'b@y.com'],
+        'messages': [
+            {
+                'id': '...',
+                'from': 'Name <email>',
+                'from_email': 'email@domain',
+                'to': '...',
+                'cc': '...',
+                'subject': '...',
+                'date': '...',
+                'snippet': '...',
+                'body': 'plain text body',
+            }, ...
+        ]
+    }
+    """
+    try:
+        service, _ = get_gmail_service(token_data)
+        thread = service.users().threads().get(
+            userId='me',
+            id=thread_id,
+            format='full'
+        ).execute()
+    except HttpError as e:
+        logger.warning(f"#39 get_thread_by_id failed for thread {thread_id}: {e}")
+        return None
+    except Exception as e:
+        logger.warning(f"#39 get_thread_by_id unexpected error: {e}")
+        return None
+
+    raw_messages = thread.get('messages', [])
+    if not raw_messages:
+        return None
+
+    messages = []
+    participants_seen: Dict[str, Dict] = {}  # email → {name, role}
+
+    def _record_participant(header_value: str, role: str):
+        """Parse 'Alice <a@x.com>, Bob <b@y.com>' and stash each participant.
+        First role wins, except 'sender' is always more authoritative."""
+        if not header_value:
+            return
+        for chunk in header_value.split(','):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            email = chunk
+            name = ''
+            if '<' in chunk and '>' in chunk:
+                try:
+                    name = chunk.split('<')[0].strip().strip('"')
+                    email = chunk.split('<')[1].split('>')[0].strip()
+                except Exception:
+                    pass
+            email = email.lower()
+            if not email or '@' not in email:
+                continue
+            existing = participants_seen.get(email)
+            if existing is None or role == 'sender':
+                participants_seen[email] = {
+                    'name': name or email.split('@')[0],
+                    'email': email,
+                    'role': role
+                }
+
+    most_recent_subject = ''
+
+    for msg in raw_messages:
+        payload = msg.get('payload', {})
+        headers = {h['name'].lower(): h['value'] for h in payload.get('headers', [])}
+
+        from_header = headers.get('from', '')
+        to_header = headers.get('to', '')
+        cc_header = headers.get('cc', '')
+        subject = headers.get('subject', '')
+        date = headers.get('date', '')
+
+        body = extract_body(payload)
+
+        from_email = from_header
+        if '<' in from_header and '>' in from_header:
+            try:
+                from_email = from_header.split('<')[1].split('>')[0].strip().lower()
+            except Exception:
+                pass
+
+        _record_participant(from_header, 'sender')
+        _record_participant(to_header, 'to')
+        _record_participant(cc_header, 'cc')
+
+        if subject:
+            most_recent_subject = subject
+
+        messages.append({
+            'id': msg.get('id', ''),
+            'from': from_header,
+            'from_email': from_email.lower() if '@' in from_email else from_email,
+            'to': to_header,
+            'cc': cc_header,
+            'subject': subject,
+            'date': date,
+            'snippet': msg.get('snippet', ''),
+            'body': body,
+        })
+
+    return {
+        'thread_id': thread_id,
+        'subject': most_recent_subject or '(no subject)',
+        'message_count': len(messages),
+        'participants': list(participants_seen.values()),
+        'unique_emails': list(participants_seen.keys()),
+        'messages': messages,
+    }
