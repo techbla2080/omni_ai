@@ -25,6 +25,7 @@ from api.messages import router as messages_router
 from api.auth import router as auth_router
 from api.settings import router as settings_router  # #37 — Custom system prompts
 from api.memories import router as memories_router  # #38 — Persistent user memory
+from api.email_calendar import router as email_calendar_router  # #39 — Email → Calendar bridge
 
 # Optional routers
 try:
@@ -108,6 +109,7 @@ app.include_router(messages_router)
 app.include_router(auth_router)
 app.include_router(settings_router)  # #37 — Custom system prompts
 app.include_router(memories_router)  # #38 — Persistent user memory
+app.include_router(email_calendar_router)  # #39 — Email → Calendar bridge
 
 if HAS_GMAIL_ROUTER:
     app.include_router(gmail_router)
