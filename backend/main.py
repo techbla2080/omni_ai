@@ -26,6 +26,7 @@ from api.auth import router as auth_router
 from api.settings import router as settings_router  # #37 — Custom system prompts
 from api.memories import router as memories_router  # #38 — Persistent user memory
 from api.email_calendar import router as email_calendar_router  # #39 — Email → Calendar bridge
+from api.payments import router as payments_router  # #41 — Razorpay payments
 
 # Optional routers
 try:
@@ -110,6 +111,7 @@ app.include_router(auth_router)
 app.include_router(settings_router)  # #37 — Custom system prompts
 app.include_router(memories_router)  # #38 — Persistent user memory
 app.include_router(email_calendar_router)  # #39 — Email → Calendar bridge
+app.include_router(payments_router)  # #41 — Razorpay payments
 
 if HAS_GMAIL_ROUTER:
     app.include_router(gmail_router)
@@ -185,6 +187,7 @@ async def root():
             "Google Calendar Integration",
             "AI Intent Classifier (multilingual)",
             "Custom System Prompts",
+            "Razorpay Payments",
         ],
         "timestamp": datetime.utcnow().isoformat()
     }
