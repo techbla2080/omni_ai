@@ -1,20 +1,21 @@
 """
 Payments API — Razorpay integration for OmniAI Pro subscriptions.
 
-Endpoints (this file — #41):
-  GET  /api/v1/payments/key            → public Razorpay key for frontend init
-  GET  /api/v1/payments/plans          → list available plans
-  POST /api/v1/payments/create-order   → create order, return id for Checkout
-
-Endpoints coming later:
-  #42 POST /api/v1/payments/webhook    → Razorpay event receiver
-  #42 POST /api/v1/payments/verify     → optimistic post-checkout verification
-  #43 GET  /api/v1/payments/me         → current subscription state
+Endpoints in this file:
+  GET  /api/v1/payments/key            (#41) Public Razorpay key for frontend init
+  GET  /api/v1/payments/plans          (#41) Available subscription plans
+  POST /api/v1/payments/create-order   (#41) Create Razorpay order
+  POST /api/v1/payments/webhook        (#42) Razorpay event receiver (signature-verified)
+  POST /api/v1/payments/verify         (#42) Optimistic post-checkout verification
+  GET  /api/v1/payments/me             (#43) Current user's subscription state
 
 Auth pattern matches api/email_calendar.py — get_current_user returns a
-user_id string and takes (request, db) directly.
+user_id string and takes (request, db) directly. Webhook endpoint is the
+exception: no auth, signature verification instead.
 """
+import json
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
@@ -60,6 +61,105 @@ async def get_user_email(user_id: str, db: AsyncSession) -> Optional[str]:
 
 
 # ============================================================================
+# Subscription activation — shared by /webhook and /verify
+# ============================================================================
+
+async def activate_subscription(
+    user_id: str,
+    plan: str,
+    payment_id: str,
+    razorpay_order_id: str,
+    razorpay_payment_id: str,
+    db: AsyncSession,
+) -> None:
+    """
+    Mark a user Pro by creating a subscription row. Idempotent — if the same
+    razorpay_payment_id already exists (UNIQUE constraint), no-op.
+
+    If user has an active subscription, the new one stacks on top of it
+    (started_at = current expires_at) so the user gets full value.
+    """
+    plan_config = SUPPORTED_PLANS.get(plan)
+    if not plan_config:
+        logger.error(f"Cannot activate unknown plan: {plan}")
+        return
+
+    duration_days = plan_config["duration_days"]
+    now = datetime.now(timezone.utc)
+
+    # Find latest active subscription to stack on top of
+    result = await db.execute(
+        text("""
+            SELECT expires_at FROM subscriptions
+            WHERE user_id = :user_id
+              AND is_active = TRUE
+              AND expires_at > :now
+            ORDER BY expires_at DESC
+            LIMIT 1
+        """),
+        {"user_id": str(user_id), "now": now}
+    )
+    row = result.fetchone()
+
+    start_at = row[0] if row else now
+    expires_at = start_at + timedelta(days=duration_days)
+
+    # Insert new subscription — UNIQUE on razorpay_payment_id makes this idempotent
+    await db.execute(
+        text("""
+            INSERT INTO subscriptions (
+                user_id, plan, payment_id,
+                razorpay_order_id, razorpay_payment_id,
+                started_at, expires_at, is_active
+            ) VALUES (
+                :user_id, :plan, :payment_id,
+                :order_id, :payment_rp_id,
+                :started_at, :expires_at, TRUE
+            )
+            ON CONFLICT (razorpay_payment_id) DO NOTHING
+        """),
+        {
+            "user_id": str(user_id),
+            "plan": plan,
+            "payment_id": str(payment_id) if payment_id else None,
+            "order_id": razorpay_order_id,
+            "payment_rp_id": razorpay_payment_id,
+            "started_at": start_at,
+            "expires_at": expires_at,
+        }
+    )
+
+    logger.info(
+        f"Activated subscription: user={str(user_id)[:8]} plan={plan} "
+        f"starts={start_at.isoformat()} expires={expires_at.isoformat()}"
+    )
+
+
+async def get_active_subscription(user_id: str, db: AsyncSession) -> Optional[dict]:
+    """Return the user's currently active subscription, or None."""
+    result = await db.execute(
+        text("""
+            SELECT plan, started_at, expires_at
+            FROM subscriptions
+            WHERE user_id = :user_id
+              AND is_active = TRUE
+              AND expires_at > NOW()
+            ORDER BY expires_at DESC
+            LIMIT 1
+        """),
+        {"user_id": str(user_id)}
+    )
+    row = result.fetchone()
+    if not row:
+        return None
+    return {
+        "plan": row[0],
+        "started_at": row[1],
+        "expires_at": row[2],
+    }
+
+
+# ============================================================================
 # Request / Response schemas
 # ============================================================================
 
@@ -86,8 +186,8 @@ class PlanInfo(BaseModel):
     key: str
     label: str
     description: str
-    amount: int           # paise
-    amount_display: str   # "₹499"
+    amount: int
+    amount_display: str
     currency: str
     duration_days: int
 
@@ -96,17 +196,33 @@ class PlansResponse(BaseModel):
     plans: list[PlanInfo]
 
 
+class VerifyPaymentRequest(BaseModel):
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+
+
+class VerifyPaymentResponse(BaseModel):
+    verified: bool
+    is_pro: bool
+    plan: Optional[str] = None
+    expires_at: Optional[str] = None
+
+
+class MeResponse(BaseModel):
+    is_pro: bool
+    plan: Optional[str] = None
+    started_at: Optional[str] = None
+    expires_at: Optional[str] = None
+
+
 # ============================================================================
-# Endpoints
+# Public endpoints (#41)
 # ============================================================================
 
 @router.get("/key", response_model=PaymentKeyResponse)
 async def get_razorpay_key():
-    """
-    Return the public Razorpay key id.
-    Frontend needs this to initialize the Checkout SDK.
-    Safe to expose — it's the "publishable" key.
-    """
+    """Return the public Razorpay key id for frontend Checkout init."""
     rp = get_razorpay_service()
     return PaymentKeyResponse(key_id=rp.key_id)
 
@@ -140,21 +256,9 @@ async def create_order(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Create a Razorpay order for the current user.
-
-    Flow:
-      1. User clicks "Upgrade to Pro" in frontend
-      2. Frontend calls this endpoint
-      3. We create order on Razorpay, persist record in our DB
-      4. We return order_id + key + amount
-      5. Frontend opens Razorpay Checkout modal with these values
-      6. User pays → Razorpay calls our webhook (#42) → we mark user Pro
-    """
-    # ---- Auth ----
+    """Create a Razorpay order for the current user."""
     user_id = await get_user_id(request, db)
 
-    # ---- Validate plan ----
     if body.plan not in SUPPORTED_PLANS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -163,11 +267,8 @@ async def create_order(
 
     plan_config = SUPPORTED_PLANS[body.plan]
     rp = get_razorpay_service()
-
-    # ---- Get user's email for Razorpay prefill (best-effort) ----
     user_email = await get_user_email(user_id, db)
 
-    # ---- Create order on Razorpay ----
     try:
         order = rp.create_order(
             plan=body.plan,
@@ -181,8 +282,6 @@ async def create_order(
             detail="Could not create payment order. Please try again in a moment.",
         )
 
-    # ---- Persist order in our DB ----
-    # If this fails we still return success — webhook (#42) will reconcile.
     try:
         await db.execute(
             text("""
@@ -210,9 +309,7 @@ async def create_order(
     except Exception:
         logger.exception(f"Failed to persist payment for order {order['id']}")
         await db.rollback()
-        # Don't fail the request — order is live on Razorpay; webhook will reconcile
 
-    # ---- Return everything the frontend needs to open Checkout ----
     return CreateOrderResponse(
         order_id=order["id"],
         razorpay_key_id=rp.key_id,
@@ -222,4 +319,325 @@ async def create_order(
         plan_label=plan_config["label"],
         plan_description=plan_config["description"],
         user_email=user_email,
+    )
+
+
+# ============================================================================
+# Webhook handler (#42) — Razorpay calls this server-to-server
+# ============================================================================
+
+async def _record_webhook_event(
+    db: AsyncSession,
+    event_id: str,
+    event_type: str,
+    payload: dict,
+) -> bool:
+    """
+    Record this webhook event. Returns True if this is the first time we've
+    seen this event_id (proceed with processing), False if already processed
+    (idempotent skip).
+    """
+    try:
+        result = await db.execute(
+            text("""
+                INSERT INTO webhook_events (provider, event_id, event_type, payload)
+                VALUES ('razorpay', :event_id, :event_type, CAST(:payload AS JSONB))
+                ON CONFLICT (provider, event_id) DO NOTHING
+                RETURNING id
+            """),
+            {
+                "event_id": event_id,
+                "event_type": event_type,
+                "payload": json.dumps(payload),
+            }
+        )
+        row = result.fetchone()
+        await db.commit()
+        return row is not None
+    except Exception:
+        logger.exception("Failed to record webhook event")
+        await db.rollback()
+        return True  # On error, proceed anyway — better duplicate than miss
+
+
+async def _handle_payment_captured(payload: dict, db: AsyncSession) -> dict:
+    """Process payment.captured event. Updates payment + activates subscription."""
+    payment_entity = (
+        payload.get("payload", {}).get("payment", {}).get("entity", {})
+    )
+    razorpay_payment_id = payment_entity.get("id")
+    razorpay_order_id = payment_entity.get("order_id")
+    amount_paid = payment_entity.get("amount", 0)
+
+    if not razorpay_order_id:
+        logger.error("payment.captured webhook missing order_id")
+        return {"status": "ignored", "reason": "no_order_id"}
+
+    # Look up payment by order_id, atomically mark captured
+    # The WHERE status = 'created' acts as a lock against duplicate processing
+    result = await db.execute(
+        text("""
+            UPDATE payments
+            SET status = 'captured',
+                razorpay_payment_id = :payment_id,
+                captured_at = NOW()
+            WHERE razorpay_order_id = :order_id
+              AND status = 'created'
+            RETURNING id, user_id, plan
+        """),
+        {"payment_id": razorpay_payment_id, "order_id": razorpay_order_id}
+    )
+    row = result.fetchone()
+
+    if not row:
+        # Either payment doesn't exist, or already captured (idempotent)
+        # Check which case it is for logging
+        check = await db.execute(
+            text("SELECT status FROM payments WHERE razorpay_order_id = :order_id"),
+            {"order_id": razorpay_order_id}
+        )
+        existing = check.fetchone()
+        if existing and existing[0] == "captured":
+            await db.commit()
+            return {"status": "ok", "reason": "already_captured"}
+        else:
+            await db.rollback()
+            logger.warning(f"No payment record for order {razorpay_order_id}")
+            return {"status": "ignored", "reason": "payment_not_found"}
+
+    payment_db_id, user_id, plan = row[0], row[1], row[2]
+
+    # Activate subscription
+    await activate_subscription(
+        user_id=str(user_id),
+        plan=plan,
+        payment_id=str(payment_db_id),
+        razorpay_order_id=razorpay_order_id,
+        razorpay_payment_id=razorpay_payment_id,
+        db=db,
+    )
+    await db.commit()
+
+    logger.info(
+        f"✅ Payment captured: order={razorpay_order_id} "
+        f"payment={razorpay_payment_id} user={str(user_id)[:8]} amount={amount_paid}"
+    )
+    return {"status": "ok", "reason": "captured"}
+
+
+async def _handle_payment_failed(payload: dict, db: AsyncSession) -> dict:
+    """Process payment.failed event. Marks payment failed in our DB."""
+    payment_entity = (
+        payload.get("payload", {}).get("payment", {}).get("entity", {})
+    )
+    razorpay_order_id = payment_entity.get("order_id")
+    razorpay_payment_id = payment_entity.get("id")
+
+    if not razorpay_order_id:
+        return {"status": "ignored", "reason": "no_order_id"}
+
+    try:
+        await db.execute(
+            text("""
+                UPDATE payments
+                SET status = 'failed',
+                    razorpay_payment_id = :payment_id
+                WHERE razorpay_order_id = :order_id
+                  AND status IN ('created', 'attempted')
+            """),
+            {"payment_id": razorpay_payment_id, "order_id": razorpay_order_id}
+        )
+        await db.commit()
+        logger.info(f"Payment failed: order={razorpay_order_id}")
+        return {"status": "ok", "reason": "marked_failed"}
+    except Exception:
+        await db.rollback()
+        logger.exception("Failed to mark payment failed")
+        return {"status": "ignored", "reason": "db_error"}
+
+
+@router.post("/webhook")
+async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    """
+    Razorpay webhook receiver. NOT authenticated — verified via signature.
+
+    Razorpay docs: respond 2xx within 5 seconds or they retry.
+    We always return 200 even on internal errors (logged) to avoid retry storms.
+    """
+    # Raw body for signature verification
+    body = await request.body()
+    signature = request.headers.get("X-Razorpay-Signature", "")
+
+    rp = get_razorpay_service()
+
+    # Verify signature
+    if not rp.verify_webhook_signature(body, signature):
+        logger.warning(
+            f"Invalid Razorpay webhook signature from {request.client.host if request.client else 'unknown'}"
+        )
+        # Return 200 anyway to discourage retries (Razorpay would just resend)
+        return {"status": "ignored", "reason": "invalid_signature"}
+
+    # Parse JSON
+    try:
+        payload = json.loads(body)
+    except Exception:
+        logger.exception("Could not parse webhook body as JSON")
+        return {"status": "ignored", "reason": "invalid_body"}
+
+    event_type = payload.get("event", "")
+    event_id = payload.get("id") or payload.get("event_id") or ""
+
+    # Idempotency check
+    if event_id:
+        is_new = await _record_webhook_event(db, event_id, event_type, payload)
+        if not is_new:
+            logger.info(f"Skipping duplicate webhook event {event_id} ({event_type})")
+            return {"status": "ok", "reason": "duplicate"}
+
+    # Route by event type
+    try:
+        if event_type == "payment.captured":
+            return await _handle_payment_captured(payload, db)
+        elif event_type == "payment.failed":
+            return await _handle_payment_failed(payload, db)
+        else:
+            logger.info(f"Unhandled webhook event type: {event_type}")
+            return {"status": "ignored", "reason": "unhandled_event"}
+    except Exception:
+        logger.exception(f"Error processing webhook event {event_id} ({event_type})")
+        # Still return 200 to avoid retry — we have the event recorded
+        return {"status": "ignored", "reason": "internal_error"}
+
+
+# ============================================================================
+# Optimistic verify (#42) — frontend calls right after Razorpay Checkout closes
+# ============================================================================
+
+@router.post("/verify", response_model=VerifyPaymentResponse)
+async def verify_payment(
+    body: VerifyPaymentRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Called by frontend immediately after Razorpay Checkout completes successfully.
+    Gives instant UI feedback without waiting for webhook.
+
+    Idempotent — if webhook already activated the subscription, returns current
+    state. If webhook hasn't fired yet, optimistically activates here.
+    """
+    user_id = await get_user_id(request, db)
+    rp = get_razorpay_service()
+
+    # Verify signature — proves the payment ID is genuine
+    is_valid = rp.verify_payment_signature(
+        order_id=body.razorpay_order_id,
+        payment_id=body.razorpay_payment_id,
+        signature=body.razorpay_signature,
+    )
+
+    if not is_valid:
+        logger.warning(
+            f"Invalid payment signature: user={user_id[:8]} "
+            f"order={body.razorpay_order_id}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid payment signature",
+        )
+
+    # Look up payment and verify it belongs to this user
+    result = await db.execute(
+        text("""
+            SELECT id, user_id, status, plan
+            FROM payments
+            WHERE razorpay_order_id = :order_id
+        """),
+        {"order_id": body.razorpay_order_id}
+    )
+    row = result.fetchone()
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Payment record not found",
+        )
+
+    payment_db_id, payment_user_id, payment_status, payment_plan = row[0], row[1], row[2], row[3]
+
+    if str(payment_user_id) != str(user_id):
+        logger.warning(
+            f"User {user_id[:8]} tried to verify payment belonging to {str(payment_user_id)[:8]}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Payment does not belong to this user",
+        )
+
+    # If still 'created', do optimistic update (webhook hasn't arrived yet)
+    if payment_status == "created":
+        try:
+            update_result = await db.execute(
+                text("""
+                    UPDATE payments
+                    SET status = 'captured',
+                        razorpay_payment_id = :payment_id,
+                        captured_at = NOW()
+                    WHERE id = :id AND status = 'created'
+                    RETURNING id
+                """),
+                {"payment_id": body.razorpay_payment_id, "id": payment_db_id}
+            )
+            updated = update_result.fetchone()
+
+            if updated:
+                # We won the race against the webhook — activate subscription
+                await activate_subscription(
+                    user_id=user_id,
+                    plan=payment_plan,
+                    payment_id=str(payment_db_id),
+                    razorpay_order_id=body.razorpay_order_id,
+                    razorpay_payment_id=body.razorpay_payment_id,
+                    db=db,
+                )
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            logger.exception("Failed to optimistically activate subscription")
+
+    # Return current subscription state
+    sub = await get_active_subscription(user_id, db)
+    return VerifyPaymentResponse(
+        verified=True,
+        is_pro=sub is not None,
+        plan=sub["plan"] if sub else None,
+        expires_at=sub["expires_at"].isoformat() if sub else None,
+    )
+
+
+# ============================================================================
+# Subscription state (#43)
+# ============================================================================
+
+@router.get("/me", response_model=MeResponse)
+async def get_my_subscription(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Return the current user's subscription state.
+    Frontend calls this on app load to show Pro badge / unlock features.
+    """
+    user_id = await get_user_id(request, db)
+    sub = await get_active_subscription(user_id, db)
+
+    if not sub:
+        return MeResponse(is_pro=False)
+
+    return MeResponse(
+        is_pro=True,
+        plan=sub["plan"],
+        started_at=sub["started_at"].isoformat() if sub["started_at"] else None,
+        expires_at=sub["expires_at"].isoformat(),
     )
