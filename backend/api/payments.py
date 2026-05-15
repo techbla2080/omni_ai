@@ -8,6 +8,9 @@ Endpoints in this file:
   POST /api/v1/payments/webhook        (#42) Razorpay event receiver (signature-verified)
   POST /api/v1/payments/verify         (#42) Optimistic post-checkout verification
   GET  /api/v1/payments/me             (#43) Current user's subscription state
+  GET  /api/v1/payments/pro-test       (#44) Pro-gate verification endpoint
+
+Pro gate: require_pro() helper for use in any endpoint that needs Pro access.
 
 Auth pattern matches api/email_calendar.py — get_current_user returns a
 user_id string and takes (request, db) directly. Webhook endpoint is the
@@ -61,8 +64,32 @@ async def get_user_email(user_id: str, db: AsyncSession) -> Optional[str]:
 
 
 # ============================================================================
-# Subscription activation — shared by /webhook and /verify
+# Subscription helpers — shared by /webhook, /verify, /me, require_pro
 # ============================================================================
+
+async def get_active_subscription(user_id: str, db: AsyncSession) -> Optional[dict]:
+    """Return the user's currently active subscription, or None."""
+    result = await db.execute(
+        text("""
+            SELECT plan, started_at, expires_at
+            FROM subscriptions
+            WHERE user_id = :user_id
+              AND is_active = TRUE
+              AND expires_at > NOW()
+            ORDER BY expires_at DESC
+            LIMIT 1
+        """),
+        {"user_id": str(user_id)}
+    )
+    row = result.fetchone()
+    if not row:
+        return None
+    return {
+        "plan": row[0],
+        "started_at": row[1],
+        "expires_at": row[2],
+    }
+
 
 async def activate_subscription(
     user_id: str,
@@ -104,7 +131,6 @@ async def activate_subscription(
     start_at = row[0] if row else now
     expires_at = start_at + timedelta(days=duration_days)
 
-    # Insert new subscription — UNIQUE on razorpay_payment_id makes this idempotent
     await db.execute(
         text("""
             INSERT INTO subscriptions (
@@ -135,28 +161,44 @@ async def activate_subscription(
     )
 
 
-async def get_active_subscription(user_id: str, db: AsyncSession) -> Optional[dict]:
-    """Return the user's currently active subscription, or None."""
-    result = await db.execute(
-        text("""
-            SELECT plan, started_at, expires_at
-            FROM subscriptions
-            WHERE user_id = :user_id
-              AND is_active = TRUE
-              AND expires_at > NOW()
-            ORDER BY expires_at DESC
-            LIMIT 1
-        """),
-        {"user_id": str(user_id)}
-    )
-    row = result.fetchone()
-    if not row:
-        return None
-    return {
-        "plan": row[0],
-        "started_at": row[1],
-        "expires_at": row[2],
-    }
+# ============================================================================
+# #44 — Pro gate
+# ============================================================================
+
+async def require_pro(request: Request, db: AsyncSession) -> str:
+    """
+    Pro gate: ensure user is authenticated AND has active Pro subscription.
+
+    Use as the first call in any endpoint that should be Pro-only.
+
+    Returns: user_id (str) if user is Pro
+    Raises:
+        401 if not authenticated
+        402 Payment Required if authenticated but not Pro
+
+    Usage:
+        @router.post("/some-pro-feature")
+        async def feature_endpoint(
+            body: SomeBody,
+            request: Request,
+            db: AsyncSession = Depends(get_db),
+        ):
+            user_id = await require_pro(request, db)
+            # ... endpoint code, user is guaranteed Pro
+    """
+    user_id = await get_user_id(request, db)
+    sub = await get_active_subscription(user_id, db)
+    if not sub:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "error": "pro_required",
+                "message": "This feature requires OmniAI Pro. Upgrade to continue.",
+                "plan": PRO_MONTHLY_PLAN,
+                "upgrade_endpoint": "/api/v1/payments/create-order",
+            }
+        )
+    return user_id
 
 
 # ============================================================================
@@ -323,7 +365,7 @@ async def create_order(
 
 
 # ============================================================================
-# Webhook handler (#42) — Razorpay calls this server-to-server
+# Webhook handler (#42)
 # ============================================================================
 
 async def _record_webhook_event(
@@ -332,11 +374,7 @@ async def _record_webhook_event(
     event_type: str,
     payload: dict,
 ) -> bool:
-    """
-    Record this webhook event. Returns True if this is the first time we've
-    seen this event_id (proceed with processing), False if already processed
-    (idempotent skip).
-    """
+    """Record this webhook event. Returns True if new, False if duplicate."""
     try:
         result = await db.execute(
             text("""
@@ -357,11 +395,11 @@ async def _record_webhook_event(
     except Exception:
         logger.exception("Failed to record webhook event")
         await db.rollback()
-        return True  # On error, proceed anyway — better duplicate than miss
+        return True
 
 
 async def _handle_payment_captured(payload: dict, db: AsyncSession) -> dict:
-    """Process payment.captured event. Updates payment + activates subscription."""
+    """Process payment.captured event."""
     payment_entity = (
         payload.get("payload", {}).get("payment", {}).get("entity", {})
     )
@@ -373,8 +411,6 @@ async def _handle_payment_captured(payload: dict, db: AsyncSession) -> dict:
         logger.error("payment.captured webhook missing order_id")
         return {"status": "ignored", "reason": "no_order_id"}
 
-    # Look up payment by order_id, atomically mark captured
-    # The WHERE status = 'created' acts as a lock against duplicate processing
     result = await db.execute(
         text("""
             UPDATE payments
@@ -390,8 +426,6 @@ async def _handle_payment_captured(payload: dict, db: AsyncSession) -> dict:
     row = result.fetchone()
 
     if not row:
-        # Either payment doesn't exist, or already captured (idempotent)
-        # Check which case it is for logging
         check = await db.execute(
             text("SELECT status FROM payments WHERE razorpay_order_id = :order_id"),
             {"order_id": razorpay_order_id}
@@ -407,7 +441,6 @@ async def _handle_payment_captured(payload: dict, db: AsyncSession) -> dict:
 
     payment_db_id, user_id, plan = row[0], row[1], row[2]
 
-    # Activate subscription
     await activate_subscription(
         user_id=str(user_id),
         plan=plan,
@@ -426,7 +459,7 @@ async def _handle_payment_captured(payload: dict, db: AsyncSession) -> dict:
 
 
 async def _handle_payment_failed(payload: dict, db: AsyncSession) -> dict:
-    """Process payment.failed event. Marks payment failed in our DB."""
+    """Process payment.failed event."""
     payment_entity = (
         payload.get("payload", {}).get("payment", {}).get("entity", {})
     )
@@ -458,27 +491,18 @@ async def _handle_payment_failed(payload: dict, db: AsyncSession) -> dict:
 
 @router.post("/webhook")
 async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db)):
-    """
-    Razorpay webhook receiver. NOT authenticated — verified via signature.
-
-    Razorpay docs: respond 2xx within 5 seconds or they retry.
-    We always return 200 even on internal errors (logged) to avoid retry storms.
-    """
-    # Raw body for signature verification
+    """Razorpay webhook receiver. NOT authenticated — verified via signature."""
     body = await request.body()
     signature = request.headers.get("X-Razorpay-Signature", "")
 
     rp = get_razorpay_service()
 
-    # Verify signature
     if not rp.verify_webhook_signature(body, signature):
         logger.warning(
             f"Invalid Razorpay webhook signature from {request.client.host if request.client else 'unknown'}"
         )
-        # Return 200 anyway to discourage retries (Razorpay would just resend)
         return {"status": "ignored", "reason": "invalid_signature"}
 
-    # Parse JSON
     try:
         payload = json.loads(body)
     except Exception:
@@ -488,14 +512,12 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
     event_type = payload.get("event", "")
     event_id = payload.get("id") or payload.get("event_id") or ""
 
-    # Idempotency check
     if event_id:
         is_new = await _record_webhook_event(db, event_id, event_type, payload)
         if not is_new:
             logger.info(f"Skipping duplicate webhook event {event_id} ({event_type})")
             return {"status": "ok", "reason": "duplicate"}
 
-    # Route by event type
     try:
         if event_type == "payment.captured":
             return await _handle_payment_captured(payload, db)
@@ -506,12 +528,11 @@ async def razorpay_webhook(request: Request, db: AsyncSession = Depends(get_db))
             return {"status": "ignored", "reason": "unhandled_event"}
     except Exception:
         logger.exception(f"Error processing webhook event {event_id} ({event_type})")
-        # Still return 200 to avoid retry — we have the event recorded
         return {"status": "ignored", "reason": "internal_error"}
 
 
 # ============================================================================
-# Optimistic verify (#42) — frontend calls right after Razorpay Checkout closes
+# Optimistic verify (#42)
 # ============================================================================
 
 @router.post("/verify", response_model=VerifyPaymentResponse)
@@ -520,17 +541,10 @@ async def verify_payment(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Called by frontend immediately after Razorpay Checkout completes successfully.
-    Gives instant UI feedback without waiting for webhook.
-
-    Idempotent — if webhook already activated the subscription, returns current
-    state. If webhook hasn't fired yet, optimistically activates here.
-    """
+    """Called by frontend immediately after Razorpay Checkout completes."""
     user_id = await get_user_id(request, db)
     rp = get_razorpay_service()
 
-    # Verify signature — proves the payment ID is genuine
     is_valid = rp.verify_payment_signature(
         order_id=body.razorpay_order_id,
         payment_id=body.razorpay_payment_id,
@@ -547,7 +561,6 @@ async def verify_payment(
             detail="Invalid payment signature",
         )
 
-    # Look up payment and verify it belongs to this user
     result = await db.execute(
         text("""
             SELECT id, user_id, status, plan
@@ -575,7 +588,6 @@ async def verify_payment(
             detail="Payment does not belong to this user",
         )
 
-    # If still 'created', do optimistic update (webhook hasn't arrived yet)
     if payment_status == "created":
         try:
             update_result = await db.execute(
@@ -592,7 +604,6 @@ async def verify_payment(
             updated = update_result.fetchone()
 
             if updated:
-                # We won the race against the webhook — activate subscription
                 await activate_subscription(
                     user_id=user_id,
                     plan=payment_plan,
@@ -606,7 +617,6 @@ async def verify_payment(
             await db.rollback()
             logger.exception("Failed to optimistically activate subscription")
 
-    # Return current subscription state
     sub = await get_active_subscription(user_id, db)
     return VerifyPaymentResponse(
         verified=True,
@@ -625,10 +635,7 @@ async def get_my_subscription(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Return the current user's subscription state.
-    Frontend calls this on app load to show Pro badge / unlock features.
-    """
+    """Return current user's subscription state for frontend Pro badge."""
     user_id = await get_user_id(request, db)
     sub = await get_active_subscription(user_id, db)
 
@@ -641,3 +648,33 @@ async def get_my_subscription(
         started_at=sub["started_at"].isoformat() if sub["started_at"] else None,
         expires_at=sub["expires_at"].isoformat(),
     )
+
+
+# ============================================================================
+# #44 — Pro gate verification endpoint
+# ============================================================================
+
+@router.get("/pro-test")
+async def pro_only_test(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Test endpoint to verify the require_pro gate works correctly.
+
+    Expected behavior:
+      - No auth         → 401 Unauthorized
+      - Auth but no Pro → 402 Payment Required
+      - Auth + Pro      → 200 with subscription details
+
+    This endpoint stays in place as a permanent "am I Pro?" diagnostic.
+    """
+    user_id = await require_pro(request, db)
+    sub = await get_active_subscription(user_id, db)
+    return {
+        "is_pro": True,
+        "user_id_prefix": user_id[:8],
+        "plan": sub["plan"],
+        "expires_at": sub["expires_at"].isoformat(),
+        "message": "🎉 You're a Pro user! This gated endpoint confirms it works.",
+    }
