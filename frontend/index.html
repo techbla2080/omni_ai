@@ -37,6 +37,9 @@
     <!-- Scripts -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+
+    <!-- #45 — Razorpay Checkout SDK -->
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 </head>
 <body>
     <!-- Header -->
@@ -279,12 +282,85 @@
         </div>
     </div>
 
+    <!-- ============================================
+         #45 — PRO UPGRADE MODAL (Razorpay Checkout)
+         ============================================ -->
+    <div id="upgradeModal" class="upgrade-modal-overlay" style="display:none;" onclick="if(event.target===this)closeUpgradeModal()">
+        <div class="upgrade-modal">
+            <button class="upgrade-modal-close" onclick="closeUpgradeModal()" aria-label="Close">×</button>
+
+            <div class="upgrade-header">
+                <div class="upgrade-badge-top">PRO</div>
+                <h2>Unlock OmniAI Pro</h2>
+                <p class="upgrade-tagline">The AI that does things — for serious users.</p>
+            </div>
+
+            <div class="upgrade-pricing">
+                <div class="upgrade-price-amount">₹499<span class="upgrade-price-period">/month</span></div>
+                <div class="upgrade-price-note">Cancel anytime • UPI · Cards · Wallets · Netbanking</div>
+            </div>
+
+            <div class="upgrade-features">
+                <div class="upgrade-feature">
+                    <span class="upgrade-feature-icon">✉️</span>
+                    <span class="upgrade-feature-text">Send emails directly from chat</span>
+                </div>
+                <div class="upgrade-feature">
+                    <span class="upgrade-feature-icon">📅</span>
+                    <span class="upgrade-feature-text">Create calendar events with AI</span>
+                </div>
+                <div class="upgrade-feature">
+                    <span class="upgrade-feature-icon">🌉</span>
+                    <span class="upgrade-feature-text">Email → Calendar bridge</span>
+                </div>
+                <div class="upgrade-feature">
+                    <span class="upgrade-feature-icon">🧠</span>
+                    <span class="upgrade-feature-text">Unlimited persistent memories</span>
+                </div>
+                <div class="upgrade-feature">
+                    <span class="upgrade-feature-icon">⚙️</span>
+                    <span class="upgrade-feature-text">Custom AI personalities</span>
+                </div>
+                <div class="upgrade-feature">
+                    <span class="upgrade-feature-icon">∞</span>
+                    <span class="upgrade-feature-text">Unlimited chat messages</span>
+                </div>
+            </div>
+
+            <button id="upgradePayBtn" class="upgrade-pay-btn" onclick="initiatePayment()">
+                Upgrade Now — ₹499
+            </button>
+
+            <div class="upgrade-trust">
+                🔒 Secure payment via Razorpay
+            </div>
+        </div>
+    </div>
+
+    <!-- #45 — PAYMENT SUCCESS MODAL -->
+    <div id="paymentSuccessModal" class="upgrade-modal-overlay" style="display:none;">
+        <div class="upgrade-modal upgrade-success-state">
+            <div class="upgrade-success-icon">🎉</div>
+            <h2>Welcome to OmniAI Pro!</h2>
+            <p class="upgrade-tagline">All Pro features are now unlocked.</p>
+            <div class="upgrade-success-features">
+                <div>✓ Pro badge on your profile</div>
+                <div>✓ Send emails from chat</div>
+                <div>✓ Calendar event creation</div>
+                <div>✓ Email → Calendar bridge</div>
+                <div>✓ Unlimited memories</div>
+                <div>✓ Custom AI personalities</div>
+            </div>
+            <button class="upgrade-pay-btn" onclick="closeSuccessModal()">Start Using Pro →</button>
+        </div>
+    </div>
+
     <!-- Scripts -->
     <script src="js/auth.js"></script>
     <script src="js/theme.js"></script>
     <script src="js/sidebar.js"></script>
     <script src="js/files.js"></script>
-    <script src="/js/app.js?v=16"></script>
+    <script src="/js/app.js?v=17"></script>
 
     <script>
         // Initialize syntax highlighting

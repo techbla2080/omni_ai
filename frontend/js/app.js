@@ -4309,3 +4309,237 @@ const BookMeeting = (() => {
 
 // Expose globally so inline onclick handlers can call it
 window.BookMeeting = BookMeeting;
+
+// ============================================================================
+// #45 — RAZORPAY CHECKOUT INTEGRATION
+// Drives the Pro upgrade flow: load subscription state on boot, show upgrade
+// button for free users, open modal, call /create-order, open Razorpay
+// Checkout, verify payment on success, show "Welcome to Pro" modal.
+// ============================================================================
+
+// Subscription state — populated on app load via /api/v1/payments/me
+window.subscriptionState = {
+    isPro: false,
+    plan: null,
+    expiresAt: null,
+    loaded: false
+};
+
+
+// ---- Load subscription state from backend ----------------------------------
+
+async function loadSubscriptionState() {
+    try {
+        const response = await authFetch('/api/v1/payments/me');
+        if (!response.ok) {
+            console.warn('#45 Could not load subscription state:', response.status);
+            return;
+        }
+        const data = await response.json();
+        window.subscriptionState.isPro = data.is_pro;
+        window.subscriptionState.plan = data.plan;
+        window.subscriptionState.expiresAt = data.expires_at;
+        window.subscriptionState.loaded = true;
+
+        console.log('#45 Subscription loaded:', window.subscriptionState);
+
+        renderProBadge();
+        renderUpgradeButton();
+    } catch (error) {
+        console.error('#45 Error loading subscription:', error);
+    }
+}
+
+
+// ---- Render the Pro badge next to the user avatar --------------------------
+
+function renderProBadge() {
+    document.querySelectorAll('.pro-badge').forEach(el => el.remove());
+    if (!window.subscriptionState.isPro) return;
+
+    const avatar = document.getElementById('userAvatarBtn')
+        || document.querySelector('.user-avatar-btn');
+
+    if (avatar && avatar.parentElement) {
+        const badge = document.createElement('span');
+        badge.className = 'pro-badge';
+        badge.textContent = '⭐ PRO';
+        if (window.subscriptionState.expiresAt) {
+            const d = new Date(window.subscriptionState.expiresAt);
+            badge.title = `Pro until ${d.toLocaleDateString()}`;
+        }
+        avatar.parentElement.insertBefore(badge, avatar);
+    }
+}
+
+
+// ---- Render the "Upgrade to Pro" button in the sidebar (free users only) ---
+
+function renderUpgradeButton() {
+    document.querySelectorAll('.upgrade-trigger-btn').forEach(el => el.remove());
+    if (window.subscriptionState.isPro) return;
+
+    const sidebar = document.getElementById('sidebar') || document.querySelector('.sidebar');
+    if (!sidebar) {
+        console.warn('#45 Could not find sidebar for upgrade button');
+        return;
+    }
+
+    const btn = document.createElement('button');
+    btn.className = 'upgrade-trigger-btn';
+    btn.innerHTML = '<span class="upgrade-trigger-star">⭐</span> Upgrade to Pro';
+    btn.onclick = openUpgradeModal;
+    sidebar.appendChild(btn);
+}
+
+
+// ---- Modal open / close ----------------------------------------------------
+
+function openUpgradeModal() {
+    const modal = document.getElementById('upgradeModal');
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeUpgradeModal() {
+    const modal = document.getElementById('upgradeModal');
+    if (modal) modal.style.display = 'none';
+
+    const payBtn = document.getElementById('upgradePayBtn');
+    if (payBtn) {
+        payBtn.disabled = false;
+        payBtn.textContent = 'Upgrade Now — ₹499';
+    }
+}
+
+function closeSuccessModal() {
+    const modal = document.getElementById('paymentSuccessModal');
+    if (modal) modal.style.display = 'none';
+    loadSubscriptionState();
+}
+
+
+// ---- Initiate payment — calls /create-order, opens Razorpay Checkout -------
+
+async function initiatePayment() {
+    const payBtn = document.getElementById('upgradePayBtn');
+    if (payBtn) {
+        payBtn.disabled = true;
+        payBtn.textContent = 'Loading…';
+    }
+
+    try {
+        const orderResp = await authFetch('/api/v1/payments/create-order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ plan: 'pro_monthly' })
+        });
+
+        if (!orderResp.ok) {
+            let detail;
+            try { detail = (await orderResp.json()).detail; } catch (_) { detail = orderResp.statusText; }
+            throw new Error(detail || 'Could not create order');
+        }
+
+        const order = await orderResp.json();
+        console.log('#45 Order created:', order.order_id);
+
+        if (typeof Razorpay === 'undefined') {
+            throw new Error('Razorpay SDK not loaded. Check checkout.js script tag in index.html.');
+        }
+
+        const options = {
+            key: order.razorpay_key_id,
+            amount: order.amount,
+            currency: order.currency,
+            order_id: order.order_id,
+            name: 'OmniAI',
+            description: order.plan_label || 'OmniAI Pro Subscription',
+            prefill: {
+                email: order.user_email || ''
+            },
+            theme: {
+                color: '#7c3aed'
+            },
+            handler: async function (razorpayResponse) {
+                // Payment authorised by Razorpay — verify on our backend
+                await verifyAndConfirmPayment(razorpayResponse);
+            },
+            modal: {
+                ondismiss: function () {
+                    console.log('#45 User dismissed Razorpay Checkout');
+                    if (payBtn) {
+                        payBtn.disabled = false;
+                        payBtn.textContent = 'Upgrade Now — ₹499';
+                    }
+                }
+            }
+        };
+
+        const rzp = new Razorpay(options);
+        rzp.on('payment.failed', function (resp) {
+            console.error('#45 Payment failed:', resp.error);
+            alert('Payment failed: ' + (resp.error && resp.error.description ? resp.error.description : 'Unknown error'));
+            if (payBtn) {
+                payBtn.disabled = false;
+                payBtn.textContent = 'Upgrade Now — ₹499';
+            }
+        });
+        rzp.open();
+
+    } catch (error) {
+        console.error('#45 initiatePayment error:', error);
+        alert('Could not start payment: ' + error.message);
+        if (payBtn) {
+            payBtn.disabled = false;
+            payBtn.textContent = 'Upgrade Now — ₹499';
+        }
+    }
+}
+
+
+// ---- Verify payment on backend, then show success modal --------------------
+
+async function verifyAndConfirmPayment(razorpayResponse) {
+    try {
+        const verifyResp = await authFetch('/api/v1/payments/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                razorpay_order_id: razorpayResponse.razorpay_order_id,
+                razorpay_payment_id: razorpayResponse.razorpay_payment_id,
+                razorpay_signature: razorpayResponse.razorpay_signature
+            })
+        });
+
+        if (!verifyResp.ok) {
+            let detail;
+            try { detail = (await verifyResp.json()).detail; } catch (_) { detail = verifyResp.statusText; }
+            throw new Error(detail || 'Verification failed');
+        }
+
+        const result = await verifyResp.json();
+        console.log('#45 Payment verified:', result);
+
+        // Hide upgrade modal, show success modal
+        closeUpgradeModal();
+        const successModal = document.getElementById('paymentSuccessModal');
+        if (successModal) successModal.style.display = 'flex';
+
+        // Refresh subscription state in the background
+        loadSubscriptionState();
+
+    } catch (error) {
+        console.error('#45 verifyAndConfirmPayment error:', error);
+        alert('Payment verification failed: ' + error.message + '\n\nIf money was deducted, please contact support — your subscription will be activated.');
+    }
+}
+
+
+// ---- Boot ------------------------------------------------------------------
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Load subscription state ~1s after page load so auth is ready
+    setTimeout(loadSubscriptionState, 1000);
+});
+
+console.log('#45 Razorpay Checkout module loaded');
