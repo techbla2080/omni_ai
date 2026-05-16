@@ -4543,3 +4543,151 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 console.log('#45 Razorpay Checkout module loaded');
+
+// ============================================================================
+// #46 — SUBSCRIPTION INFO IN USER DROPDOWN
+// Injects plan + expiry into the user avatar dropdown so users can see
+// their subscription status. Updates whenever subscription state changes.
+// ============================================================================
+
+function renderSubscriptionInDropdown() {
+    // Remove any existing subscription block first
+    const existing = document.getElementById('subscriptionDropdownBlock');
+    if (existing) existing.remove();
+
+    // Find the user dropdown
+    const dropdown = document.querySelector('.user-dropdown');
+    if (!dropdown) {
+        console.log('#46 user-dropdown not found yet, skipping injection');
+        return;
+    }
+
+    // Build the subscription block
+    const block = document.createElement('div');
+    block.id = 'subscriptionDropdownBlock';
+    block.style.cssText = `
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border-secondary, rgba(255, 255, 255, 0.06));
+        font-size: 12.5px;
+    `;
+
+    if (window.subscriptionState && window.subscriptionState.isPro) {
+        // ----- PRO USER -----
+        let expiryText = '';
+        if (window.subscriptionState.expiresAt) {
+            const d = new Date(window.subscriptionState.expiresAt);
+            expiryText = d.toLocaleDateString('en-IN', {
+                day: 'numeric', month: 'short', year: 'numeric'
+            });
+        }
+
+        block.innerHTML = `
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                <span style="color: var(--text-tertiary, #888); font-size: 11px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;">Subscription</span>
+                <span style="
+                    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+                    color: #1f1930;
+                    padding: 2px 8px;
+                    border-radius: 999px;
+                    font-size: 10px;
+                    font-weight: 800;
+                    letter-spacing: 0.5px;
+                ">⭐ PRO</span>
+            </div>
+            <div style="color: var(--text-primary, #f0f0f0); font-weight: 500; margin-bottom: 2px;">
+                Pro Monthly · ₹499
+            </div>
+            ${expiryText ? `<div style="color: var(--text-tertiary, #888); font-size: 11.5px;">Renews on ${expiryText}</div>` : ''}
+        `;
+    } else {
+        // ----- FREE USER -----
+        block.innerHTML = `
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                <span style="color: var(--text-tertiary, #888); font-size: 11px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;">Subscription</span>
+                <span style="
+                    background: rgba(255, 255, 255, 0.08);
+                    color: var(--text-secondary, #a0a0a0);
+                    padding: 2px 8px;
+                    border-radius: 999px;
+                    font-size: 10px;
+                    font-weight: 700;
+                    letter-spacing: 0.5px;
+                ">FREE</span>
+            </div>
+            <button id="dropdownUpgradeBtn" style="
+                width: 100%;
+                background: linear-gradient(135deg, #a78bfa, #7c3aed);
+                color: white;
+                border: none;
+                padding: 8px 12px;
+                border-radius: 8px;
+                font-size: 12.5px;
+                font-weight: 600;
+                font-family: 'Plus Jakarta Sans', sans-serif;
+                cursor: pointer;
+                transition: opacity 0.15s, transform 0.1s;
+                box-shadow: 0 2px 8px rgba(124, 58, 237, 0.3);
+            ">⭐ Upgrade to Pro</button>
+        `;
+    }
+
+    // Insert at the top of the dropdown (after the header if there is one,
+    // otherwise as the first child)
+    const header = dropdown.querySelector('.user-dropdown-header');
+    if (header && header.nextSibling) {
+        dropdown.insertBefore(block, header.nextSibling);
+    } else if (header) {
+        dropdown.appendChild(block);
+    } else {
+        dropdown.insertBefore(block, dropdown.firstChild);
+    }
+
+    // Wire up upgrade button for free users
+    const upgradeBtn = document.getElementById('dropdownUpgradeBtn');
+    if (upgradeBtn) {
+        upgradeBtn.onmouseenter = () => {
+            upgradeBtn.style.transform = 'translateY(-1px)';
+            upgradeBtn.style.boxShadow = '0 4px 14px rgba(124, 58, 237, 0.45)';
+        };
+        upgradeBtn.onmouseleave = () => {
+            upgradeBtn.style.transform = 'translateY(0)';
+            upgradeBtn.style.boxShadow = '0 2px 8px rgba(124, 58, 237, 0.3)';
+        };
+        upgradeBtn.onclick = (e) => {
+            e.stopPropagation();
+            // Close dropdown
+            dropdown.classList.remove('show');
+            // Open upgrade modal
+            if (typeof openUpgradeModal === 'function') openUpgradeModal();
+        };
+    }
+}
+
+
+// ---- Hook into existing #45 flow ------------------------------------------
+// Re-run dropdown injection whenever subscription state changes by wrapping
+// the existing loadSubscriptionState function.
+
+(function () {
+    if (typeof loadSubscriptionState !== 'function') {
+        console.warn('#46 loadSubscriptionState not found — make sure #45 block is above this');
+        return;
+    }
+
+    const original = loadSubscriptionState;
+    window.loadSubscriptionState = async function () {
+        await original.apply(this, arguments);
+        // Wait a tick for the dropdown to be in the DOM if it was just rendered
+        setTimeout(renderSubscriptionInDropdown, 50);
+    };
+})();
+
+
+// ---- Also run once on page load in case dropdown is already there ---------
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Subscription state loads at ~1s in #45, so run injection at ~1.2s
+    setTimeout(renderSubscriptionInDropdown, 1200);
+});
+
+console.log('#46 Subscription dropdown polish loaded');
