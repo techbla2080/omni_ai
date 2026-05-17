@@ -4691,3 +4691,57 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 console.log('#46 Subscription dropdown polish loaded');
+
+// ============================================================================
+// #47 — 402 PAYMENT REQUIRED HANDLER
+// Wraps authFetch so any 402 response with `error: "pro_required"` auto-opens
+// the upgrade modal with the feature context.
+// ============================================================================
+
+(function () {
+    if (typeof authFetch !== 'function') {
+        console.warn('#47 authFetch not found — 402 handler not installed');
+        return;
+    }
+
+    const originalAuthFetch = authFetch;
+
+    window.authFetch = async function (url, options) {
+        const response = await originalAuthFetch.apply(this, arguments);
+
+        if (response.status === 402) {
+            // Clone so caller can still read the body
+            const clone = response.clone();
+            try {
+                const data = await clone.json();
+                const detail = data && data.detail;
+                if (detail && detail.error === 'pro_required') {
+                    console.log('#47 Caught 402 pro_required:', detail);
+                    handle402(detail);
+                }
+            } catch (e) {
+                // Body wasn't JSON — let caller handle
+            }
+        }
+
+        return response;
+    };
+
+    console.log('#47 402 handler installed');
+})();
+
+
+function handle402(detail) {
+    // Customize the upgrade modal tagline to show what was blocked
+    const tagline = document.querySelector('#upgradeModal .upgrade-tagline');
+    if (tagline && detail.feature_label) {
+        tagline.textContent = `${detail.feature_label} is a Pro feature. Unlock it now.`;
+    }
+
+    // Open the modal
+    if (typeof openUpgradeModal === 'function') {
+        openUpgradeModal();
+    } else {
+        alert(detail.message || 'This is a Pro feature. Please upgrade.');
+    }
+}
