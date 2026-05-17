@@ -23,6 +23,7 @@ from services.calendar_service import (
     analyze_calendar,
 )
 from database.database import get_db
+from api.pro_gate import require_pro
 
 logger = logging.getLogger(__name__)
 
@@ -284,7 +285,8 @@ async def get_events(
 async def create_calendar_event(
     request: Request,
     body: CreateEventRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _pro: None = Depends(require_pro("calendar_create")),
 ):
     """
     Create a new calendar event.

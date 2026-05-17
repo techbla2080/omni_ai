@@ -24,6 +24,7 @@ from services.gmail_service import (
     mark_as_read
 )
 from database.database import get_db
+from api.pro_gate import require_pro
 
 logger = logging.getLogger(__name__)
 
@@ -297,7 +298,8 @@ async def mark_email_read(
 async def send_gmail(
     request: Request,
     body: SendEmailRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _pro: None = Depends(require_pro("gmail_send")),
 ):
     user_id = await get_user_id(request, db)
     tokens = await get_gmail_tokens(user_id, db)

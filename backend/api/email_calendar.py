@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
 from database import get_db
+from api.pro_gate import require_pro
 
 # Service layer — the actual logic
 from services.email_to_calendar import (
@@ -181,7 +182,8 @@ class ConfirmBookingResponse(BaseModel):
 async def prepare_booking(
     body: PrepareBookingRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _pro: None = Depends(require_pro("email_to_calendar")),
 ):
     """
     Step 1 of email→calendar booking: read the email thread, extract meeting
@@ -283,7 +285,8 @@ async def prepare_booking(
 async def confirm_booking(
     body: ConfirmBookingRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _pro: None = Depends(require_pro("email_to_calendar")),
 ):
     """
     Step 2 of email→calendar booking: user reviewed the proposal and

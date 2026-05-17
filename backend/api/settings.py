@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
 from database import get_db
+from api.pro_gate import require_pro
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +163,8 @@ async def get_system_prompt(
 async def set_system_prompt(
     body: SystemPromptRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _pro: None = Depends(require_pro("custom_prompt")),
 ):
     """
     Save or update the user's custom system prompt.
