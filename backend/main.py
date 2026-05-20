@@ -16,6 +16,11 @@ import os
 from utils.config import settings
 from services.llm import llm_service
 
+# #48 — Rate limiting
+from utils.rate_limit import limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
+
 # Import ALL routers
 from api.capabilities import router as capabilities_router
 from api.chat_enhanced import router as chat_enhanced_router
@@ -79,6 +84,12 @@ app = FastAPI(
     version="0.7.0",
     debug=settings.DEBUG
 )
+
+# ========================================
+# #48 — RATE LIMITING
+# ========================================
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ========================================
 # CORS MIDDLEWARE
