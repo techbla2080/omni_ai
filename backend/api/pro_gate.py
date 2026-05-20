@@ -16,7 +16,7 @@ Usage:
         ...
 """
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
@@ -64,9 +64,13 @@ def require_pro(feature_name: str):
                       contextual messaging.
     """
     async def _checker(
-        user_id: str = Depends(get_current_user),
+        request: Request,
         db: AsyncSession = Depends(get_db),
     ) -> None:
+        # Call auth manually — matches codebase pattern (get_current_user
+        # takes Request + db without being wrapped in Depends)
+        user_id = await get_current_user(request, db)
+
         if await _user_is_pro(db, user_id):
             return  # Pro user — allow through
 
@@ -86,7 +90,7 @@ def require_pro(feature_name: str):
 
 
 async def get_pro_status(
-    user_id: str = Depends(get_current_user),
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> bool:
     """
@@ -94,4 +98,5 @@ async def get_pro_status(
     degrade for free users (e.g. memory endpoint returns capped list)
     rather than 402-erroring out.
     """
+    user_id = await get_current_user(request, db)
     return await _user_is_pro(db, user_id)
