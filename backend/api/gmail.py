@@ -25,6 +25,7 @@ from services.gmail_service import (
 )
 from database.database import get_db
 from api.pro_gate import require_pro
+from utils.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -295,6 +296,7 @@ async def mark_email_read(
 # ============================================================
 
 @router.post("/send")
+@limiter.limit("30/hour")
 async def send_gmail(
     request: Request,
     body: SendEmailRequest,

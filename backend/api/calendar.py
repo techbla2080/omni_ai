@@ -24,6 +24,7 @@ from services.calendar_service import (
 )
 from database.database import get_db
 from api.pro_gate import require_pro
+from utils.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -282,6 +283,7 @@ async def get_events(
 # ============================================================
 
 @router.post("/events")
+@limiter.limit("30/hour")
 async def create_calendar_event(
     request: Request,
     body: CreateEventRequest,

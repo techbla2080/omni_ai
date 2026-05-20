@@ -39,6 +39,7 @@ from services.web_search import web_search_service
 from services.model_router import model_router
 from services.file_context import file_context_service
 from database import get_db
+from utils.rate_limit import limiter
 
 # #38 — Memory recall + extraction
 from services.memory import (
@@ -669,6 +670,7 @@ async def get_conversation_messages(db: AsyncSession, conversation_id: str) -> L
 # ============================================================================
 
 @router.post("/chat", response_model=ChatResponse)
+@limiter.limit("30/hour")
 async def enhanced_chat(
     chat_request: ChatRequest,
     request: Request,
@@ -886,6 +888,7 @@ async def enhanced_chat(
 # ============================================================================
 
 @router.post("/chat/stream")
+@limiter.limit("30/hour")
 async def stream_chat(
     chat_request: ChatRequest,
     request: Request,
@@ -1028,6 +1031,7 @@ async def stream_chat(
 # ============================================================================
 
 @router.post("/chat/regenerate", response_model=ChatResponse)
+@limiter.limit("20/hour")
 async def regenerate_response(
     regen_request: RegenerateRequest,
     request: Request,

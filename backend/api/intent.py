@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from services.intent_classifier import classify_intent
 from database.database import get_db
+from utils.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ router = APIRouter(prefix="/api/v1/intent", tags=["intent"])
 
 
 @router.post("/classify")
+@limiter.limit("200/hour")
 async def classify(
     request: Request,
     body: ClassifyRequest,
