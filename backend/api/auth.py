@@ -16,6 +16,7 @@ from jose import jwt, JWTError
 
 from database import get_db
 from utils.config import settings
+from utils.sanitize import sanitize_text, sanitize_email
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -182,7 +183,7 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
             "id": user_id,
             "email": request.email,
             "hash": hashed,
-            "name": request.name or request.email.split('@')[0]
+            "name": sanitize_text(request.name, max_length=100) or request.email.split('@')[0]
         }
     )
     await db.commit()
@@ -376,7 +377,7 @@ async def update_profile(
     
     if body.name is not None:
         updates.append("name = :name")
-        params["name"] = body.name
+        params["name"] = sanitize_text(body.name, max_length=100)
     if body.avatar_url is not None:
         updates.append("avatar_url = :avatar_url")
         params["avatar_url"] = body.avatar_url
@@ -529,7 +530,7 @@ async def google_callback(code: str, db: AsyncSession = Depends(get_db)):
     
     google_user = userinfo.json()
     email = google_user["email"]
-    name = google_user.get("name", email.split("@")[0])
+    name = sanitize_text(google_user.get("name", email.split("@")[0]), max_length=100)
     
     # Check if user exists
     result = await db.execute(

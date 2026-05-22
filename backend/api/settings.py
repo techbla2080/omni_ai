@@ -23,6 +23,7 @@ from sqlalchemy import text
 
 from database import get_db
 from api.pro_gate import require_pro
+from utils.sanitize import sanitize_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -195,7 +196,7 @@ async def set_system_prompt(
     
     # Merge into existing preferences (don't clobber other settings)
     prefs = await _get_preferences(db, user_id)
-    prefs["custom_system_prompt"] = prompt
+    prefs["custom_system_prompt"] = sanitize_prompt(prompt, max_length=2000)
     await _save_preferences(db, user_id, prefs)
     
     logger.info(f"#37 Custom prompt saved for user {user_id[:8]}... ({len(prompt)} chars)")

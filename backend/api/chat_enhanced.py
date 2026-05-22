@@ -40,6 +40,7 @@ from services.model_router import model_router
 from services.file_context import file_context_service
 from database import get_db
 from utils.rate_limit import limiter
+from utils.sanitize import sanitize_title
 
 # #38 — Memory recall + extraction
 from services.memory import (
@@ -409,7 +410,7 @@ class FeedbackRequest(BaseModel):
 def generate_title_from_message(message: str) -> str:
     """Generate a smart title from the first message"""
 
-    message = message.strip()
+    message = sanitize_title(message, max_length=200)
 
     prefixes = [
         "can you", "could you", "please", "help me", "i want to",
@@ -1353,13 +1354,17 @@ async def list_conversations(user_id: Optional[str] = None, limit: int = 20, db:
 async def update_conversation_title(conversation_id: str, request: UpdateTitleRequest, db: AsyncSession = Depends(get_db)):
     """Update conversation title"""
 
+    clean_title = sanitize_title(request.title)
+    if not clean_title:
+        raise HTTPException(status_code=400, detail="Title cannot be empty")
+
     await db.execute(
         text("UPDATE conversations SET title = :title, updated_at = NOW() WHERE id = :conv_id"),
-        {"title": request.title, "conv_id": conversation_id}
+        {"title": clean_title, "conv_id": conversation_id}
     )
     await db.commit()
 
-    return {"status": "updated", "conversation_id": conversation_id, "title": request.title}
+    return {"status": "updated", "conversation_id": conversation_id, "title": clean_title}
 
 
 @router.patch("/chat/conversations/{conversation_id}/mode")

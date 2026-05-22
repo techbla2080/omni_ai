@@ -348,7 +348,7 @@ async def save_memory(
         """),
         {
             "user_id": user_id,
-            "content": content_stripped,
+            "content": sanitize_prompt(content_stripped, max_length=2000),
             "category": category,
             "confidence": float(confidence),
             "source_conv": source_conversation_id,

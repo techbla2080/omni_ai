@@ -92,14 +92,26 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ========================================
-# CORS MIDDLEWARE
+# CORS MIDDLEWARE — #51 locked to explicit origins
 # ========================================
+ALLOWED_ORIGINS = [
+    "https://omniai.biz",
+    "https://www.omniai.biz",
+    "http://localhost:8000",  # local dev
+    "http://localhost:3000",  # local dev (alt port)
+    "http://127.0.0.1:8000",
+]
+# Env override (comma-separated) — useful for staging/preview environments
+_env_origins = os.getenv("ALLOWED_ORIGINS", "").strip()
+if _env_origins:
+    ALLOWED_ORIGINS = [o.strip() for o in _env_origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
 )
 
 # ========================================
