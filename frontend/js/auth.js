@@ -169,7 +169,7 @@ async function login(email, password, rememberMe = false) {
             
             showSuccess('Login successful! Redirecting...');
             setTimeout(() => {
-                window.location.href = 'index.html';
+                window.location.href = 'app.html';
             }, 1000);
             
             return true;
@@ -223,7 +223,7 @@ async function register(name, email, password) {
             
             showSuccess('Account created! Redirecting...');
             setTimeout(() => {
-                window.location.href = 'index.html';
+                window.location.href = 'app.html';
             }, 1000);
             
             return true;
@@ -575,7 +575,7 @@ async function requireAuth() {
 
 function redirectIfLoggedIn() {
     if (isAuthenticated()) {
-        window.location.href = 'index.html';
+        window.location.href = 'app.html';
         return true;
     }
     return false;

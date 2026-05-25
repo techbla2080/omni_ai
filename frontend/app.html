@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+    <!-- #19: Title + Meta Tags -->
+    <title>OmniAI — The AI That Does Things</title>
+    <meta name="description" content="OmniAI is your intelligent AI assistant that reads emails, manages your calendar, analyzes files, and executes code — all through natural conversation.">
+    <meta name="keywords" content="AI assistant, productivity, Gmail, calendar, file analysis, code execution, India">
+    <meta name="author" content="OmniAI">
+    <meta name="theme-color" content="#7c6cf0">
+
+    <!-- Open Graph (WhatsApp, LinkedIn previews) -->
+    <meta property="og:title" content="OmniAI — The AI That Does Things">
+    <meta property="og:description" content="Your intelligent AI assistant for email, calendar, files and code.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="http://147.93.20.126">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="OmniAI — The AI That Does Things">
+    <meta name="twitter:description" content="Your intelligent AI assistant for email, calendar, files and code.">
+
+    <!-- #19: Favicon (SVG inline — no file needed) -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%237c6cf0'/><text y='.9em' font-size='70' x='50%' text-anchor='middle' dominant-baseline='auto' dy='0.1em'>✦</text></svg>">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,500&display=swap" rel="stylesheet">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+
+    <!-- #45 — Razorpay Checkout SDK -->
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="header-left">
+            <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
+            <div class="logo">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-primary)">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                </svg>
+                OmniAI
+            </div>
+        </div>
+        <div class="header-right">
+            <button class="files-toggle" onclick="toggleFilesPanel()" title="Files">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                </svg>
+            </button>
+            <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+                <span class="theme-icon" id="themeIcon">🌙</span>
+            </button>
+            <button class="new-chat-btn" onclick="newChat()">+ New Chat</button>
+
+            <!-- #20: User Menu with initials avatar -->
+            <div class="user-menu" id="userMenu">
+                <button class="user-avatar-btn" id="userAvatarBtn" onclick="toggleUserMenu()" title="Account">
+                    <span class="user-avatar-text" id="userAvatarText">?</span>
+                </button>
+                <div class="user-dropdown" id="userDropdown">
+                    <div class="user-dropdown-header">
+                        <div class="dropdown-avatar" id="dropdownAvatar">?</div>
+                        <div class="dropdown-info">
+                            <span class="dropdown-name" id="dropdownName">User</span>
+                            <span class="dropdown-email" id="dropdownEmail">user@email.com</span>
+                        </div>
+                    </div>
+                    <div class="user-dropdown-divider"></div>
+                    <a href="profile.html" class="user-dropdown-item">⚙️ Profile & Settings</a>
+                    <button class="user-dropdown-item logout-item" onclick="logout()">🚪 Log out</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="main-container">
+        <!-- Sidebar -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-title">Conversations</div>
+                <input type="text" class="search-box" placeholder="Search chats..." id="searchBox" oninput="handleSearchInput(event)">
+            </div>
+            <div class="conversations-list" id="conversationsList">
+                <div class="empty-state">No conversations yet.<br>Start chatting to create one!</div>
+            </div>
+        </div>
+
+        <!-- Sidebar overlay (mobile) -->
+        <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+        <!-- Files Panel -->
+        <div class="files-panel hidden" id="filesPanel">
+            <div class="files-panel-header">
+                <div class="files-panel-title">Files</div>
+                <select id="fileTypeFilter" onchange="filterFiles()">
+                    <option value="">All Types</option>
+                    <option value="document">Documents</option>
+                    <option value="image">Images</option>
+                    <option value="spreadsheet">Spreadsheets</option>
+                    <option value="code">Code</option>
+                </select>
+            </div>
+            <div class="files-search">
+                <input type="text" id="fileSearchInput" class="file-search-input" placeholder="Search file contents..." oninput="searchFiles()">
+            </div>
+            <div class="files-list" id="filesList">
+                <div class="empty-state">No files uploaded yet.</div>
+            </div>
+            <div class="files-stats" id="filesStats"></div>
+        </div>
+
+        <!-- Chat Area -->
+        <div class="chat-area">
+            <div class="messages-container" id="messagesContainer">
+                <div class="welcome" id="welcome">
+                    <h1>What can I help you with?</h1>
+                    <p>I'm OmniAI — your intelligent assistant. I can help with writing, coding, research, planning, and more.</p>
+                    
+                    <div class="suggestions">
+                        <div class="suggestion-card" onclick="useSuggestion('What can you do?')">
+                            <div class="suggestion-title">Discover capabilities</div>
+                            <div class="suggestion-text">See everything I can help with</div>
+                        </div>
+                        <div class="suggestion-card" onclick="useSuggestion('Help me write Python code')">
+                            <div class="suggestion-title">Write code</div>
+                            <div class="suggestion-text">Generate, debug, and explain</div>
+                        </div>
+                        <div class="suggestion-card" onclick="useSuggestion('Explain quantum computing')">
+                            <div class="suggestion-title">Research a topic</div>
+                            <div class="suggestion-text">Deep dive into any subject</div>
+                        </div>
+                        <div class="suggestion-card" onclick="useSuggestion('Plan a trip to Paris')">
+                            <div class="suggestion-title">Plan something</div>
+                            <div class="suggestion-text">Trips, projects, events</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="input-area">
+                <div class="input-wrapper">
+                    <!-- #25: AI Mode Pills -->
+                    <div class="mode-pills" id="modePills">
+                        <button class="mode-pill active" data-mode="normal" onclick="switchMode('normal')" title="General AI assistant">
+                            <span class="mode-pill-icon">💬</span>
+                            <span class="mode-pill-label">Normal</span>
+                        </button>
+                        <button class="mode-pill" data-mode="email" onclick="switchMode('email')" title="Focused on Gmail and email management">
+                            <span class="mode-pill-icon">📧</span>
+                            <span class="mode-pill-label">Email</span>
+                        </button>
+                        <button class="mode-pill" data-mode="calendar" onclick="switchMode('calendar')" title="Focused on scheduling and calendar">
+                            <span class="mode-pill-icon">📅</span>
+                            <span class="mode-pill-label">Calendar</span>
+                        </button>
+                        <button class="mode-pill" data-mode="code" onclick="switchMode('code')" title="Focused on programming and development">
+                            <span class="mode-pill-icon">🧑‍💻</span>
+                            <span class="mode-pill-label">Code</span>
+                        </button>
+                    </div>
+
+                    <input type="file" id="fileInput" style="display: none;" multiple
+                        accept=".pdf,.doc,.docx,.txt,.md,.png,.jpg,.jpeg,.gif,.webp,.xlsx,.xls,.csv,.py,.js,.json,.html,.css"
+                        onchange="handleFileSelect(event)">
+                    
+                    <div class="attached-files-container" id="attachedFilesContainer" style="display: none;">
+                        <div class="attached-files" id="attachedFiles"></div>
+                    </div>
+                    
+                    <div class="input-container">
+                        <button class="attach-button" onclick="triggerFileUpload()" title="Attach files">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                            </svg>
+                        </button>
+                        <textarea class="message-input" id="messageInput" placeholder="Message OmniAI..." rows="1"
+                            onkeydown="handleKeyPress(event)" oninput="autoResize(this)"></textarea>
+                        <button class="send-button" id="sendButton" onclick="sendMessage()">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="22" y1="2" x2="11" y2="13"/>
+                                <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================
+         #39 — BOOK MEETING FROM EMAIL MODAL
+         ============================================ -->
+    <div id="book-meeting-overlay" class="bm-overlay" hidden>
+        <div class="bm-modal" role="dialog" aria-modal="true" aria-labelledby="bm-title">
+            <header class="bm-header">
+                <div class="bm-header-left">
+                    <span class="bm-icon">📅</span>
+                    <div>
+                        <h2 id="bm-title">Book meeting from email</h2>
+                        <p class="bm-subtitle" id="bm-subtitle">Reading thread…</p>
+                    </div>
+                </div>
+                <button class="bm-close" id="bm-close" aria-label="Close">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </header>
+
+            <!-- LOADING STATE -->
+            <div class="bm-state" id="bm-state-loading">
+                <div class="bm-spinner"></div>
+                <p>Reading thread, finding free slots…</p>
+            </div>
+
+            <!-- ERROR STATE -->
+            <div class="bm-state" id="bm-state-error" hidden>
+                <div class="bm-error-icon">⚠️</div>
+                <p id="bm-error-message">Something went wrong.</p>
+                <button class="bm-btn-secondary" id="bm-error-close">Close</button>
+            </div>
+
+            <!-- FORM STATE -->
+            <div class="bm-form" id="bm-state-form" hidden>
+                <div class="bm-section">
+                    <label class="bm-label">Meeting title</label>
+                    <input type="text" id="bm-title-input" class="bm-input" maxlength="200" />
+                </div>
+
+                <div class="bm-section">
+                    <label class="bm-label">Topic</label>
+                    <textarea id="bm-topic-input" class="bm-textarea" rows="2" maxlength="500" placeholder="What this meeting is about (added to invite description)"></textarea>
+                </div>
+
+                <div class="bm-section">
+                    <label class="bm-label">Attendees <span class="bm-hint" id="bm-attendees-count">0 selected</span></label>
+                    <div class="bm-attendees" id="bm-attendees"></div>
+                </div>
+
+                <div class="bm-section">
+                    <label class="bm-label">Pick a time <span class="bm-hint" id="bm-duration-hint"></span></label>
+                    <div class="bm-slots" id="bm-slots"></div>
+                </div>
+
+                <div class="bm-section bm-meet-row">
+                    <label class="bm-toggle">
+                        <input type="checkbox" id="bm-add-meet" checked />
+                        <span class="bm-toggle-track"></span>
+                        <span class="bm-toggle-label">Add Google Meet link</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- SUCCESS STATE -->
+            <div class="bm-state" id="bm-state-success" hidden>
+                <div class="bm-success-icon">✓</div>
+                <h3 id="bm-success-title">Meeting booked</h3>
+                <p id="bm-success-message">Invites sent. Calendar event created.</p>
+                <div class="bm-success-actions">
+                    <a id="bm-event-link" href="#" target="_blank" rel="noopener" class="bm-btn-primary">Open in Calendar</a>
+                    <button class="bm-btn-secondary" id="bm-success-close">Done</button>
+                </div>
+            </div>
+
+            <footer class="bm-footer" id="bm-footer" hidden>
+                <button class="bm-btn-secondary" id="bm-cancel">Cancel</button>
+                <button class="bm-btn-primary" id="bm-confirm" disabled>Book meeting</button>
+            </footer>
+        </div>
+    </div>
+
+    <!-- ============================================
+         #45 — PRO UPGRADE MODAL (Razorpay Checkout)
+         ============================================ -->
+    <div id="upgradeModal" class="upgrade-modal-overlay" style="display:none;" onclick="if(event.target===this)closeUpgradeModal()">
+        <div class="upgrade-modal">
+            <button class="upgrade-modal-close" onclick="closeUpgradeModal()" aria-label="Close">×</button>
+
+            <div class="upgrade-header">
+                <div class="upgrade-badge-top">PRO</div>
+                <h2>Unlock OmniAI Pro</h2>
+                <p class="upgrade-tagline">The AI that does things — for serious users.</p>
+            </div>
+
+            <div class="upgrade-pricing">
+                <div class="upgrade-price-amount">₹499<span class="upgrade-price-period">/month</span></div>
+                <div class="upgrade-price-note">Cancel anytime • UPI · Cards · Wallets · Netbanking</div>
+            </div>
+
+            <div class="upgrade-features">
+                <div class="upgrade-feature">
+                    <span class="upgrade-feature-icon">✉️</span>
+                    <span class="upgrade-feature-text">Send emails directly from chat</span>
+                </div>
+                <div class="upgrade-feature">
+                    <span class="upgrade-feature-icon">📅</span>
+                    <span class="upgrade-feature-text">Create calendar events with AI</span>
+                </div>
+                <div class="upgrade-feature">
+                    <span class="upgrade-feature-icon">🌉</span>
+                    <span class="upgrade-feature-text">Email → Calendar bridge</span>
+                </div>
+                <div class="upgrade-feature">
+                    <span class="upgrade-feature-icon">🧠</span>
+                    <span class="upgrade-feature-text">Unlimited persistent memories</span>
+                </div>
+                <div class="upgrade-feature">
+                    <span class="upgrade-feature-icon">⚙️</span>
+                    <span class="upgrade-feature-text">Custom AI personalities</span>
+                </div>
+                <div class="upgrade-feature">
+                    <span class="upgrade-feature-icon">∞</span>
+                    <span class="upgrade-feature-text">Unlimited chat messages</span>
+                </div>
+            </div>
+
+            <button id="upgradePayBtn" class="upgrade-pay-btn" onclick="initiatePayment()">
+                Upgrade Now — ₹499
+            </button>
+
+            <div class="upgrade-trust">
+                🔒 Secure payment via Razorpay
+            </div>
+        </div>
+    </div>
+
+    <!-- #45 — PAYMENT SUCCESS MODAL -->
+    <div id="paymentSuccessModal" class="upgrade-modal-overlay" style="display:none;">
+        <div class="upgrade-modal upgrade-success-state">
+            <div class="upgrade-success-icon">🎉</div>
+            <h2>Welcome to OmniAI Pro!</h2>
+            <p class="upgrade-tagline">All Pro features are now unlocked.</p>
+            <div class="upgrade-success-features">
+                <div>✓ Pro badge on your profile</div>
+                <div>✓ Send emails from chat</div>
+                <div>✓ Calendar event creation</div>
+                <div>✓ Email → Calendar bridge</div>
+                <div>✓ Unlimited memories</div>
+                <div>✓ Custom AI personalities</div>
+            </div>
+            <button class="upgrade-pay-btn" onclick="closeSuccessModal()">Start Using Pro →</button>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/auth.js"></script>
+    <script src="js/theme.js"></script>
+    <script src="js/sidebar.js"></script>
+    <script src="js/files.js"></script>
+    <script src="/js/app.js?v=17"></script>
+
+    <script>
+        // Initialize syntax highlighting
+        hljs.highlightAll();
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
+        }
+
+        function autoResize(textarea) {
+            textarea.style.height = 'auto';
+            textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+        }
+
+        // #20: User avatar with initials
+        function setUserAvatar(name, email) {
+            const raw = name || email || '?';
+            const parts = raw.trim().split(/\s+/);
+            let initials = parts[0][0].toUpperCase();
+            if (parts.length > 1) initials += parts[parts.length - 1][0].toUpperCase();
+
+            document.getElementById('userAvatarText').textContent = initials;
+            document.getElementById('dropdownAvatar').textContent = initials;
+            document.getElementById('dropdownName').textContent = name || 'User';
+            document.getElementById('dropdownEmail').textContent = email || '';
+        }
+
+        (async function() {
+            if (!isAuthenticated()) {
+                window.location.href = 'login.html';
+                return;
+            }
+            try {
+                const response = await authFetch('/api/v1/auth/me');
+                if (response.ok) {
+                    const user = await response.json();
+                    setUserAvatar(user.name, user.email);
+                    storeUser(user);
+
+                    const prefResponse = await authFetch('/api/v1/auth/me/preferences');
+                    if (prefResponse.ok) {
+                        const prefs = await prefResponse.json();
+                        if (prefs.theme === 'light') {
+                            document.body.classList.add('light-mode');
+                            const icon = document.getElementById('themeIcon');
+                            if (icon) icon.textContent = '☀️';
+                        }
+                    }
+                } else if (response.status === 401) {
+                    clearTokens();
+                    window.location.href = 'login.html';
+                }
+            } catch (error) {
+                console.error('Auth check failed:', error);
+            }
+        })();
+
+        function toggleUserMenu() {
+            document.getElementById('userDropdown').classList.toggle('show');
+        }
+
+        document.addEventListener('click', (e) => {
+            const menu = document.getElementById('userMenu');
+            const dropdown = document.getElementById('userDropdown');
+            if (menu && !menu.contains(e.target)) {
+                dropdown.classList.remove('show');
+            }
+        });
+    </script>
+</body>
+</html>
