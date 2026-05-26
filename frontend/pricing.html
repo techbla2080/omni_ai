@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="OmniAI pricing — free preview, Pro action. Simple plans, fair pricing.">
+<title>Pricing — OmniAI</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+<style>
+:root {
+    --bg: #000000;
+    --bg-elev-1: #0a0a0a;
+    --bg-elev-2: #141414;
+    --bg-elev-3: #1c1c1e;
+    --border: #1f1f22;
+    --border-bright: #2a2a2e;
+    --text: #f5f5f7;
+    --text-2: #a1a1a6;
+    --text-3: #6e6e73;
+    --accent: #7c6cf0;
+    --accent-bright: #9485ff;
+    --accent-soft: rgba(124, 108, 240, 0.10);
+    --success: #30d158;
+    --error: #ff5f57;
+    --font: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+    --container-wide: 1200px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+}
+a { color: inherit; text-decoration: none; }
+
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+        radial-gradient(ellipse 900px 500px at 50% 0%, rgba(124, 108, 240, 0.12), transparent 60%),
+        radial-gradient(ellipse 700px 400px at 50% 100%, rgba(124, 108, 240, 0.06), transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* NAV */
+nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    background: rgba(0, 0, 0, 0.72);
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.3s;
+}
+nav.scrolled { border-bottom-color: var(--border); }
+.nav-inner {
+    max-width: var(--container-wide);
+    margin: 0 auto;
+    padding: 1.05rem 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.logo {
+    font-size: 1.25rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+.logo-mark {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), #5a4fc7);
+    position: relative;
+}
+.logo-mark::after {
+    content: '';
+    position: absolute;
+    inset: 7px;
+    background: var(--bg);
+    border-radius: 50%;
+}
+.nav-links {
+    display: flex;
+    align-items: center;
+    gap: 2.5rem;
+    font-size: 0.88rem;
+    font-weight: 400;
+}
+.nav-links a { color: var(--text-2); transition: color 0.2s; }
+.nav-links a:hover { color: var(--text); }
+.nav-links a.active { color: var(--text); }
+.nav-cta {
+    background: var(--text);
+    color: var(--bg);
+    padding: 0.55rem 1.1rem;
+    border-radius: 980px;
+    font-weight: 500;
+    font-size: 0.85rem;
+    transition: background 0.2s, transform 0.2s;
+}
+.nav-cta:hover { background: white; }
+@media (max-width: 720px) {
+    .nav-links a:not(.nav-cta):not(.sign-in-mobile) { display: none; }
+}
+
+main { position: relative; z-index: 2; }
+
+/* HERO */
+.pricing-hero {
+    text-align: center;
+    padding: 7rem 2rem 4rem;
+    max-width: 900px;
+    margin: 0 auto;
+}
+.eyebrow {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 1.5rem;
+    opacity: 0;
+    animation: rise 0.7s 0.05s ease-out forwards;
+}
+.pricing-hero h1 {
+    font-size: clamp(2.8rem, 7vw, 5rem);
+    line-height: 1;
+    font-weight: 700;
+    letter-spacing: -0.05em;
+    margin-bottom: 1.5rem;
+    background: linear-gradient(180deg, #ffffff 0%, #b8b8c0 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    opacity: 0;
+    animation: rise 0.8s 0.15s ease-out forwards;
+}
+.pricing-hero p {
+    font-size: clamp(1.1rem, 1.5vw, 1.3rem);
+    color: var(--text-2);
+    max-width: 580px;
+    margin: 0 auto;
+    letter-spacing: -0.012em;
+    line-height: 1.5;
+    opacity: 0;
+    animation: rise 0.8s 0.3s ease-out forwards;
+}
+@keyframes rise {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Billing toggle */
+.billing-toggle {
+    display: inline-flex;
+    align-items: center;
+    background: var(--bg-elev-2);
+    border: 1px solid var(--border-bright);
+    border-radius: 980px;
+    padding: 0.3rem;
+    margin-top: 2.5rem;
+    opacity: 0;
+    animation: rise 0.8s 0.4s ease-out forwards;
+}
+.toggle-btn {
+    padding: 0.55rem 1.3rem;
+    background: transparent;
+    border: none;
+    color: var(--text-2);
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    border-radius: 980px;
+    letter-spacing: -0.005em;
+    transition: background 0.25s, color 0.25s;
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.toggle-btn.active {
+    background: var(--accent);
+    color: white;
+}
+.toggle-save-pill {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    background: rgba(48, 209, 88, 0.18);
+    color: var(--success);
+    font-size: 0.7rem;
+    font-weight: 600;
+    border-radius: 980px;
+    letter-spacing: 0;
+}
+.toggle-btn.active .toggle-save-pill {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+}
+
+/* PRICING CARDS */
+.pricing-grid {
+    max-width: 1000px;
+    margin: 3rem auto 0;
+    padding: 0 2rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+}
+@media (max-width: 800px) {
+    .pricing-grid { grid-template-columns: 1fr; }
+}
+
+.pricing-card {
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    padding: 2.5rem 2.25rem;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    transition: border-color 0.3s, transform 0.3s;
+}
+.pricing-card:hover { border-color: var(--border-bright); transform: translateY(-3px); }
+.pricing-card.featured {
+    border-color: rgba(124, 108, 240, 0.4);
+    background:
+        linear-gradient(180deg, rgba(124, 108, 240, 0.06) 0%, var(--bg-elev-1) 100%);
+}
+.pricing-card.featured::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: 24px;
+    padding: 1px;
+    background: linear-gradient(180deg, rgba(124, 108, 240, 0.45), transparent 60%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+}
+
+.popular-badge {
+    position: absolute;
+    top: -12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--accent);
+    color: white;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.3rem 0.85rem;
+    border-radius: 980px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.tier-name {
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    margin-bottom: 1.5rem;
+}
+.tier-tagline {
+    font-size: 1rem;
+    color: var(--text-2);
+    margin-bottom: 1.75rem;
+    letter-spacing: -0.012em;
+    line-height: 1.45;
+}
+.tier-price {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    margin-bottom: 0.4rem;
+}
+.tier-price-amount {
+    font-size: 3.8rem;
+    font-weight: 700;
+    letter-spacing: -0.05em;
+    line-height: 1;
+}
+.tier-price-currency {
+    color: var(--text-3);
+    font-weight: 500;
+    font-size: 2.5rem;
+    letter-spacing: -0.04em;
+}
+.tier-price-period {
+    color: var(--text-2);
+    font-size: 0.95rem;
+    font-weight: 400;
+    margin-bottom: 0.4rem;
+    letter-spacing: -0.008em;
+}
+.tier-price-note {
+    color: var(--text-3);
+    font-size: 0.85rem;
+    margin-bottom: 2rem;
+    height: 1.4em;
+    letter-spacing: -0.005em;
+}
+.tier-cta {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 0.95rem 1.5rem;
+    border-radius: 980px;
+    font-size: 1rem;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    font-family: inherit;
+    border: none;
+    cursor: pointer;
+    margin-bottom: 2rem;
+    transition: background 0.2s, border-color 0.2s, transform 0.15s;
+}
+.tier-cta.primary {
+    background: var(--accent);
+    color: white;
+}
+.tier-cta.primary:hover {
+    background: var(--accent-bright);
+    transform: translateY(-1px);
+}
+.tier-cta.secondary {
+    background: var(--bg-elev-2);
+    color: var(--text);
+    border: 1px solid var(--border-bright);
+}
+.tier-cta.secondary:hover {
+    background: var(--bg-elev-3);
+    border-color: #3a3a40;
+    transform: translateY(-1px);
+}
+
+.tier-features-title {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-2);
+    margin-bottom: 1rem;
+    letter-spacing: -0.005em;
+}
+.tier-features {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.tier-features li {
+    padding: 0.55rem 0;
+    color: var(--text-2);
+    font-size: 0.95rem;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.7rem;
+    letter-spacing: -0.008em;
+    line-height: 1.45;
+}
+.tier-features li::before {
+    content: '';
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    margin-top: 2px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237c6cf0' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 10px;
+}
+.tier-features li.disabled {
+    color: var(--text-3);
+    text-decoration: line-through;
+    text-decoration-color: var(--border-bright);
+}
+.tier-features li.disabled::before {
+    background: var(--bg-elev-2);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236e6e73' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='18' x2='6' y1='6' y2='18'/%3E%3Cline x1='6' x2='18' y1='6' y2='18'/%3E%3C/svg%3E");
+}
+.tier-features li strong {
+    color: var(--text);
+    font-weight: 600;
+}
+
+/* COMPARE TABLE */
+.compare {
+    max-width: 980px;
+    margin: 8rem auto 0;
+    padding: 0 2rem;
+}
+.compare-header {
+    text-align: center;
+    margin-bottom: 3.5rem;
+}
+.compare-header h2 {
+    font-size: clamp(2rem, 4.5vw, 3.2rem);
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    line-height: 1.05;
+    margin-bottom: 1rem;
+    background: linear-gradient(180deg, #ffffff 0%, #b8b8c0 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+.compare-header p {
+    color: var(--text-2);
+    font-size: 1.1rem;
+    letter-spacing: -0.012em;
+    max-width: 520px;
+    margin: 0 auto;
+}
+.compare-table {
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    overflow: hidden;
+}
+.compare-row {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr 1fr;
+    border-bottom: 1px solid var(--border);
+}
+.compare-row:last-child { border-bottom: none; }
+.compare-row.header {
+    background: var(--bg-elev-2);
+    font-weight: 600;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-2);
+}
+.compare-row.section-header {
+    background: var(--bg-elev-2);
+}
+.compare-cell {
+    padding: 1.1rem 1.5rem;
+    color: var(--text-2);
+    font-size: 0.95rem;
+    letter-spacing: -0.008em;
+    display: flex;
+    align-items: center;
+}
+.compare-cell.label {
+    color: var(--text);
+    font-weight: 500;
+}
+.compare-cell.section-label {
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+}
+.compare-cell.value {
+    justify-content: center;
+    text-align: center;
+}
+.compare-cell.value strong { color: var(--text); font-weight: 600; }
+.tick {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.cross {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: var(--bg-elev-2);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+@media (max-width: 720px) {
+    .compare-row { grid-template-columns: 1fr 0.7fr 0.7fr; }
+    .compare-cell { padding: 0.9rem 0.85rem; font-size: 0.85rem; }
+}
+
+/* FAQ */
+.faq {
+    max-width: 800px;
+    margin: 7rem auto 0;
+    padding: 0 2rem;
+}
+.faq-header {
+    text-align: center;
+    margin-bottom: 3rem;
+}
+.faq-header h2 {
+    font-size: clamp(2rem, 4.5vw, 3.2rem);
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    line-height: 1.05;
+    margin-bottom: 1rem;
+    background: linear-gradient(180deg, #ffffff 0%, #b8b8c0 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+.faq-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.faq-item {
+    background: var(--bg-elev-1);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    transition: border-color 0.3s;
+}
+.faq-item:hover { border-color: var(--border-bright); }
+.faq-question {
+    padding: 1.25rem 1.5rem;
+    font-size: 1.02rem;
+    font-weight: 500;
+    color: var(--text);
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    letter-spacing: -0.012em;
+    user-select: none;
+}
+.faq-toggle {
+    color: var(--text-3);
+    font-size: 1.2rem;
+    font-weight: 300;
+    transition: transform 0.3s;
+}
+.faq-item.open .faq-toggle { transform: rotate(45deg); color: var(--accent); }
+.faq-answer {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.4s ease;
+    color: var(--text-2);
+    font-size: 0.95rem;
+    letter-spacing: -0.008em;
+    line-height: 1.6;
+}
+.faq-item.open .faq-answer { max-height: 400px; }
+.faq-answer-inner {
+    padding: 0 1.5rem 1.4rem;
+    border-top: 1px solid var(--border);
+    padding-top: 1.1rem;
+}
+
+/* FINAL CTA */
+.final-cta {
+    text-align: center;
+    padding: 9rem 2rem 8rem;
+    position: relative;
+    margin-top: 7rem;
+    overflow: hidden;
+}
+.final-cta::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 700px 400px at 50% 50%, var(--accent-soft), transparent 65%);
+    pointer-events: none;
+}
+.final-cta > * { position: relative; }
+.final-cta h2 {
+    font-size: clamp(2.4rem, 6vw, 4.5rem);
+    line-height: 1;
+    letter-spacing: -0.05em;
+    font-weight: 700;
+    max-width: 760px;
+    margin: 0 auto 1.5rem;
+    background: linear-gradient(180deg, #ffffff 0%, #b8b8c0 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+.final-cta p {
+    color: var(--text-2);
+    font-size: 1.15rem;
+    max-width: 500px;
+    margin: 0 auto 2.5rem;
+    letter-spacing: -0.012em;
+}
+.btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: var(--accent);
+    color: white;
+    padding: 1rem 2rem;
+    border-radius: 980px;
+    font-weight: 500;
+    font-size: 1.02rem;
+    letter-spacing: -0.01em;
+    transition: background 0.2s, transform 0.15s;
+}
+.btn-primary:hover { background: var(--accent-bright); transform: translateY(-1px); }
+
+/* FOOTER */
+footer {
+    border-top: 1px solid var(--border);
+    padding: 4rem 2rem 3rem;
+    background: var(--bg);
+}
+.footer-inner {
+    max-width: var(--container-wide);
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+}
+.footer-links {
+    display: flex;
+    gap: 2rem;
+    font-size: 0.88rem;
+    color: var(--text-3);
+    flex-wrap: wrap;
+    letter-spacing: -0.005em;
+}
+.footer-links a { transition: color 0.2s; }
+.footer-links a:hover { color: var(--text); }
+.footer-copy { font-size: 0.85rem; color: var(--text-3); letter-spacing: -0.005em; }
+
+.reveal {
+    opacity: 0;
+    transform: translateY(28px);
+    transition: opacity 0.9s ease-out, transform 0.9s ease-out;
+}
+.reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+</style>
+</head>
+<body>
+
+<nav id="nav">
+    <div class="nav-inner">
+        <a href="/" class="logo">
+            <span class="logo-mark"></span>
+            OmniAI
+        </a>
+        <div class="nav-links">
+            <a href="/#features">Features</a>
+            <a href="/#how">How it works</a>
+            <a href="/pricing.html" class="active">Pricing</a>
+            <a href="/login.html" class="sign-in-mobile" style="color: var(--text);">Sign in</a>
+            <a href="/login.html" class="nav-cta">Get started</a>
+        </div>
+    </div>
+</nav>
+
+<main>
+
+<!-- HERO -->
+<section class="pricing-hero">
+    <div class="eyebrow">Pricing</div>
+    <h1>Fair pricing.<br>No surprises.</h1>
+    <p>Free to start. Pro to act. Cancel anytime.</p>
+
+    <div class="billing-toggle" role="tablist">
+        <button class="toggle-btn active" data-billing="monthly">Monthly</button>
+        <button class="toggle-btn" data-billing="annual">
+            Annual
+            <span class="toggle-save-pill">Save 17%</span>
+        </button>
+    </div>
+</section>
+
+<!-- PRICING CARDS -->
+<div class="pricing-grid">
+    <!-- FREE -->
+    <div class="pricing-card">
+        <div class="tier-name">Free</div>
+        <div class="tier-tagline">See what OmniAI can do, no card required.</div>
+        <div class="tier-price">
+            <span class="tier-price-currency">₹</span>
+            <span class="tier-price-amount">0</span>
+        </div>
+        <div class="tier-price-period">Forever free</div>
+        <div class="tier-price-note">No credit card</div>
+        <a href="/login.html" class="tier-cta secondary">Get started</a>
+
+        <div class="tier-features-title">What's included</div>
+        <ul class="tier-features">
+            <li><strong>15 messages</strong>/day on Llama 3.3 70B</li>
+            <li><strong>Read & summarize</strong> Gmail · 10/day</li>
+            <li><strong>Find slots &amp; view</strong> Calendar</li>
+            <li><strong>5 code runs</strong>/day in sandbox</li>
+            <li><strong>3 file uploads</strong>/day · 5 MB each</li>
+            <li><strong>5 web searches</strong>/day</li>
+            <li><strong>7-day</strong> chat history</li>
+            <li class="disabled">Send emails &amp; book meetings</li>
+            <li class="disabled">Custom AI personality</li>
+            <li class="disabled">Memory across chats</li>
+        </ul>
+    </div>
+
+    <!-- PRO -->
+    <div class="pricing-card featured">
+        <span class="popular-badge">Recommended</span>
+        <div class="tier-name">Pro</div>
+        <div class="tier-tagline">The full thing. AI that doesn't just talk — it does.</div>
+        <div class="tier-price">
+            <span class="tier-price-currency">₹</span>
+            <span class="tier-price-amount" data-monthly="499" data-annual="416">499</span>
+        </div>
+        <div class="tier-price-period"><span data-monthly="" data-annual="" id="proPeriod">per month, billed monthly</span></div>
+        <div class="tier-price-note" id="proNote"></div>
+        <a href="/login.html?upgrade=pro" class="tier-cta primary">Get Pro</a>
+
+        <div class="tier-features-title">Everything in Free, plus</div>
+        <ul class="tier-features">
+            <li><strong>1,500 messages</strong>/month (~50/day)</li>
+            <li><strong>Send, reply, draft</strong> emails via Gmail</li>
+            <li><strong>Book meetings</strong> &amp; create calendar events</li>
+            <li><strong>Unlimited</strong> code execution</li>
+            <li><strong>Unlimited</strong> file uploads · 20 MB each</li>
+            <li><strong>Unlimited</strong> web search</li>
+            <li><strong>Unlimited</strong> chat history</li>
+            <li><strong>Custom AI personality</strong> — your tone, your rules</li>
+            <li><strong>Memory</strong> that persists across chats</li>
+            <li><strong>Priority</strong> support</li>
+        </ul>
+    </div>
+</div>
+
+<!-- COMPARE TABLE -->
+<section class="compare reveal">
+    <div class="compare-header">
+        <h2>What's in each plan.</h2>
+        <p>Free to see, Pro to do.</p>
+    </div>
+
+    <div class="compare-table">
+        <div class="compare-row header">
+            <div class="compare-cell"></div>
+            <div class="compare-cell value">Free</div>
+            <div class="compare-cell value">Pro</div>
+        </div>
+
+        <div class="compare-row section-header">
+            <div class="compare-cell section-label">Usage</div>
+            <div class="compare-cell"></div>
+            <div class="compare-cell"></div>
+        </div>
+        <div class="compare-row">
+            <div class="compare-cell label">Messages</div>
+            <div class="compare-cell value">15 / day</div>
+            <div class="compare-cell value"><strong>1,500 / month</strong></div>
+        </div>
+        <div class="compare-row">
+            <div class="compare-cell label">Model</div>
+            <div class="compare-cell value">Llama 3.3 70B</div>
+            <div class="compare-cell value">Llama 3.3 70B</div>
+        </div>
+        <div class="compare-row">
+            <div class="compare-cell label">Chat history</div>
+            <div class="compare-cell value">7 days</div>
+            <div class="compare-cell value"><strong>Unlimited</strong></div>
+        </div>
+
+        <div class="compare-row section-header">
+            <div class="compare-cell section-label">Gmail</div>
+            <div class="compare-cell"></div>
+            <div class="compare-cell"></div>
+        </div>
+        <div class="compare-row">
+            <div class="compare-cell label">Read &amp; summarize emails</div>
+            <div class="compare-cell value">10 / day</div>
+            <div class="compare-cell value"><strong>Unlimited</strong></div>
+        </div>
+        <div class="compare-row">
+            <div class="compare-cell label">Send, reply, draft emails</div>
+            <div class="compare-cell value"><span class="cross"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#6e6e73" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg></span></div>
+            <div class="compare-cell value"><span class="tick"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#7c6cf0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></div>
+        </div>
+
+        <div class="compare-row section-header">
+            <div class="compare-cell section-label">Calendar</div>
+            <div class="compare-cell"></div>
+            <div class="compare-cell"></div>
+        </div>
+        <div class="compare-row">
+            <div class="compare-cell label">Find slots, view events</div>
+            <div class="compare-cell value"><span class="tick"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#7c6cf0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></div>
+            <div class="compare-cell value"><span class="tick"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#7c6cf0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></div>
+        </div>
+        <div class="compare-row">
+            <div class="compare-cell label">Book meetings, create events</div>
+            <div class="compare-cell value"><span class="cross"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#6e6e73" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg></span></div>
+            <div class="compare-cell value"><span class="tick"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#7c6cf0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></div>
+        </div>
+
+        <div class="compare-row section-header">
+            <div class="compare-cell section-label">Tools</div>
+            <div class="compare-cell"></div>
+            <div class="compare-cell"></div>
+        </div>
+        <div class="compare-row">
+            <div class="compare-cell label">Code execution</div>
+            <div class="compare-cell value">5 / day</div>
+            <div class="compare-cell value"><strong>Unlimited</strong></div>
+        </div>
+        <div class="compare-row">
+            <div class="compare-cell label">File uploads</div>
+            <div class="compare-cell value">3 / day · 5 MB</div>
+            <div class="compare-cell value"><strong>Unlimited · 20 MB</strong></div>
+        </div>
+        <div class="compare-row">
+            <div class="compare-cell label">Web search</div>
+            <div class="compare-cell value">5 / day</div>
+            <div class="compare-cell value"><strong>Unlimited</strong></div>
+        </div>
+
+        <div class="compare-row section-header">
+            <div class="compare-cell section-label">Advanced</div>
+            <div class="compare-cell"></div>
+            <div class="compare-cell"></div>
+        </div>
+        <div class="compare-row">
+            <div class="compare-cell label">Custom AI personality</div>
+            <div class="compare-cell value"><span class="cross"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#6e6e73" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg></span></div>
+            <div class="compare-cell value"><span class="tick"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#7c6cf0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></div>
+        </div>
+        <div class="compare-row">
+            <div class="compare-cell label">Memory across chats</div>
+            <div class="compare-cell value"><span class="cross"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#6e6e73" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg></span></div>
+            <div class="compare-cell value"><span class="tick"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#7c6cf0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></div>
+        </div>
+        <div class="compare-row">
+            <div class="compare-cell label">Priority support</div>
+            <div class="compare-cell value"><span class="cross"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#6e6e73" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg></span></div>
+            <div class="compare-cell value"><span class="tick"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#7c6cf0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></div>
+        </div>
+    </div>
+</section>
+
+<!-- FAQ -->
+<section class="faq reveal">
+    <div class="faq-header">
+        <h2>Common questions.</h2>
+    </div>
+    <div class="faq-list">
+        <div class="faq-item">
+            <div class="faq-question">
+                <span>Can I cancel anytime?</span>
+                <span class="faq-toggle">+</span>
+            </div>
+            <div class="faq-answer">
+                <div class="faq-answer-inner">Yes. Cancel from your settings and you'll keep Pro access until the end of your current billing period. No fees, no questions.</div>
+            </div>
+        </div>
+        <div class="faq-item">
+            <div class="faq-question">
+                <span>What payment methods do you accept?</span>
+                <span class="faq-toggle">+</span>
+            </div>
+            <div class="faq-answer">
+                <div class="faq-answer-inner">UPI, credit cards, debit cards, and net banking — all through Razorpay. Business users get auto-generated GST invoices.</div>
+            </div>
+        </div>
+        <div class="faq-item">
+            <div class="faq-question">
+                <span>What happens if I hit my message limit?</span>
+                <span class="faq-toggle">+</span>
+            </div>
+            <div class="faq-answer">
+                <div class="faq-answer-inner">On Free, you'll wait until tomorrow (limits reset daily at midnight IST). On Pro, your monthly limit resets on your billing date. If you regularly hit the cap, talk to us — we'll work something out.</div>
+            </div>
+        </div>
+        <div class="faq-item">
+            <div class="faq-question">
+                <span>Is my data private?</span>
+                <span class="faq-toggle">+</span>
+            </div>
+            <div class="faq-answer">
+                <div class="faq-answer-inner">Yes. We never train models on your conversations. Your data is encrypted at rest. Delete anything, anytime, from your settings.</div>
+            </div>
+        </div>
+        <div class="faq-item">
+            <div class="faq-question">
+                <span>Can I switch from monthly to annual later?</span>
+                <span class="faq-toggle">+</span>
+            </div>
+            <div class="faq-answer">
+                <div class="faq-answer-inner">Yes. Upgrade to annual anytime from your billing settings — you'll get a prorated credit for what you've already paid.</div>
+            </div>
+        </div>
+        <div class="faq-item">
+            <div class="faq-question">
+                <span>Do you offer refunds?</span>
+                <span class="faq-toggle">+</span>
+            </div>
+            <div class="faq-answer">
+                <div class="faq-answer-inner">If Pro isn't right for you within the first 7 days, we'll refund you in full. Just email <a href="mailto:hello@omniai.biz" style="color: var(--accent-bright);">hello@omniai.biz</a>.</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- FINAL CTA -->
+<section class="final-cta reveal">
+    <h2>Start free. Upgrade when ready.</h2>
+    <p>No card to sign up. No surprises later.</p>
+    <a href="/login.html" class="btn-primary">Get started →</a>
+</section>
+
+<footer>
+    <div class="footer-inner">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <span class="logo-mark"></span>
+            <span style="font-size: 1.05rem; font-weight: 600; letter-spacing: -0.02em;">OmniAI</span>
+        </div>
+        <div class="footer-links">
+            <a href="/#features">Features</a>
+            <a href="/pricing.html">Pricing</a>
+            <a href="/privacy.html">Privacy</a>
+            <a href="/terms.html">Terms</a>
+            <a href="mailto:hello@omniai.biz">Contact</a>
+        </div>
+        <div class="footer-copy">© 2026 OmniAI</div>
+    </div>
+</footer>
+
+</main>
+
+<script>
+// Nav scroll state
+const nav = document.getElementById('nav');
+window.addEventListener('scroll', () => {
+    if (window.scrollY > 8) nav.classList.add('scrolled');
+    else nav.classList.remove('scrolled');
+}, { passive: true });
+
+// Reveal on scroll
+const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+        if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+            observer.unobserve(entry.target);
+        }
+    });
+}, { threshold: 0.1, rootMargin: '0px 0px -80px 0px' });
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+// Billing toggle
+const toggleBtns = document.querySelectorAll('.toggle-btn');
+const proAmount = document.querySelector('.tier-price-amount[data-monthly]');
+const proPeriod = document.getElementById('proPeriod');
+const proNote = document.getElementById('proNote');
+
+toggleBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+        toggleBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const billing = btn.dataset.billing;
+        if (billing === 'monthly') {
+            proAmount.textContent = '499';
+            proPeriod.textContent = 'per month, billed monthly';
+            proNote.textContent = '';
+        } else {
+            proAmount.textContent = '416';
+            proPeriod.textContent = 'per month, billed annually';
+            proNote.textContent = '₹4,990/year · save ₹998';
+        }
+    });
+});
+
+// FAQ accordion
+document.querySelectorAll('.faq-item').forEach(item => {
+    item.querySelector('.faq-question').addEventListener('click', () => {
+        item.classList.toggle('open');
+    });
+});
+</script>
+
+</body>
+</html>
