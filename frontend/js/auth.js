@@ -10,6 +10,7 @@
  * 5. changePassword() - fixed URL to /auth/me/password with PUT method
  * 6. updateProfile() - sends JSON body instead of query param
  * 7. Renamed API_BASE to AUTH_API_BASE to avoid conflict with app.js
+ * 8. Google sign-in: capture tokens returned in the URL #fragment
  */
 
 const AUTH_API_BASE = '/api/v1';
@@ -188,6 +189,63 @@ async function login(email, password, rememberMe = false) {
 
 function loginWithGoogle() {
     window.location.href = `${AUTH_API_BASE}/auth/google`;
+}
+
+// ============================================================================
+// GOOGLE LOGIN — capture tokens on return (Step 62)
+// On login.html load: if Google redirected back with tokens in the URL #fragment,
+// store them via the same storeTokens helper and enter the app.
+// Also surfaces ?error=... if the sign-in failed.
+// ============================================================================
+
+async function handleGoogleRedirect() {
+    // Success: tokens arrive in the URL fragment (#...), never sent to the server
+    const hash = window.location.hash;
+    if (hash && hash.indexOf('access_token=') !== -1) {
+        const params = new URLSearchParams(hash.substring(1));
+        const accessToken = params.get('access_token');
+        const refreshToken = params.get('refresh_token') || '';
+
+        if (accessToken) {
+            // Google sign-in users stay logged in -> rememberMe = true
+            storeTokens(accessToken, refreshToken, true);
+            // Strip tokens out of the URL
+            history.replaceState(null, '', window.location.pathname);
+
+            // Fetch profile (mirrors normal login)
+            try {
+                const profileRes = await fetch(`${AUTH_API_BASE}/auth/me`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+                if (profileRes.ok) storeUser(await profileRes.json());
+            } catch (e) { /* non-critical */ }
+
+            window.location.href = 'app.html';
+            return;
+        }
+    }
+
+    // Failure: error arrives as a ?query param
+    const qs = new URLSearchParams(window.location.search);
+    const err = qs.get('error');
+    if (err) {
+        const messages = {
+            google_auth_failed: 'Google sign-in was cancelled. Please try again.',
+            token_exchange_failed: 'Could not complete Google sign-in. Please try again.',
+            no_email: 'Your Google account did not share an email address.'
+        };
+        if (typeof showError === 'function') {
+            showError(messages[err] || 'Google sign-in failed. Please try again.');
+        }
+        history.replaceState(null, '', window.location.pathname);
+    }
+}
+
+// Run on page load
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', handleGoogleRedirect);
+} else {
+    handleGoogleRedirect();
 }
 
 // ============================================================================

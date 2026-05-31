@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     BRAVE_API_KEY: Optional[str] = Field(default=None)
     GROQ_API_KEY: Optional[str] = Field(default=None)
     
+    # Google OAuth
+    GOOGLE_CLIENT_ID: Optional[str] = Field(default=None)
+    GOOGLE_CLIENT_SECRET: Optional[str] = Field(default=None)
+    GOOGLE_REDIRECT_URI: str = Field(default="https://omniai.biz/api/v1/auth/google/callback")
+    
     class Config:
         env_file = ".env"
         case_sensitive = True
@@ -58,6 +63,7 @@ def print_settings():
     print(f"Serper API Key: {'✅ Set' if settings.SERPER_API_KEY else '❌ Not Set'}")
     print(f"OpenAI API Key: {'✅ Set' if settings.OPENAI_API_KEY else '❌ Not Set'}")
     print(f"Groq API Key: {'✅ Set' if settings.GROQ_API_KEY else '❌ Not Set'}")
+    print(f"Google OAuth: {'✅ Set' if settings.GOOGLE_CLIENT_ID else '❌ Not Set'}")
     print("=" * 50)
 
 
