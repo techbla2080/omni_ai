@@ -68,6 +68,36 @@ function highlightCodeBlocks(element) {
 }
 
 // ============================================================================
+// URL ROUTING — clean per-chat URLs (/chat/<id>)
+// ============================================================================
+
+// Reflect the currently open conversation in the address bar (no reload).
+// Guard on current path so this is a no-op during popstate (back/forward),
+// where the browser has already changed the URL for us.
+function setChatUrl(id) {
+    const target = id ? ('/chat/' + id) : '/app.html';
+    if (window.location.pathname !== target) {
+        history.pushState({ convId: id || null }, '', target);
+    }
+}
+
+// Pull a conversation id out of /chat/<uuid> if that's the current URL.
+function getChatIdFromUrl() {
+    const m = window.location.pathname.match(/^\/chat\/([0-9a-fA-F-]{8,})$/);
+    return m ? m[1] : null;
+}
+
+// Back/forward navigation: load whatever conversation the URL now points to.
+window.addEventListener('popstate', () => {
+    const id = getChatIdFromUrl();
+    if (id) {
+        loadConversation(id);
+    } else {
+        startNewConversation();
+    }
+});
+
+// ============================================================================
 // INITIALIZATION
 // ============================================================================
 
@@ -76,6 +106,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (input) input.focus();
     setupMarked();
     loadConversations();
+
+    // If we landed on /chat/<id>, open that conversation directly.
+    const urlChatId = getChatIdFromUrl();
+    if (urlChatId) loadConversation(urlChatId);
     
     if (!document.getElementById('sidebarOverlay') && !document.querySelector('.sidebar-overlay')) {
         const overlay = document.createElement('div');
@@ -2298,6 +2332,7 @@ async function loadConversation(id) {
         if (!response.ok) return;
         const data = await response.json();
         conversationId = id;
+        setChatUrl(id);
 
         const convMode = data.mode || 'normal';
         updateModePillUI(convMode);
@@ -2324,6 +2359,7 @@ function newChat() { startNewConversation(); }
 
 function startNewConversation() {
     conversationId = null;
+    setChatUrl(null);
     lastFailedMessage = null;
     const container = document.getElementById('messagesContainer');
     if (container) container.innerHTML = '';
@@ -3294,6 +3330,7 @@ async function sendMessage() {
                 try { event = JSON.parse(jsonStr); } catch { continue; }
                 if (event.type === 'conversation_id') {
                     conversationId = event.conversation_id;
+                    setChatUrl(conversationId);
                     if (event.mode && event.mode !== currentMode) {
                         updateModePillUI(event.mode);
                     }
@@ -3331,6 +3368,7 @@ async function sendMessage() {
                 } else if (event.type === 'done') {
                     finalizeStreamingMessage(messageDiv, contentId, event.full_response || rawText, event.message_id);
                     conversationId = event.conversation_id || conversationId;
+                    setChatUrl(conversationId);
                     if (event.mode && event.mode !== currentMode) {
                         updateModePillUI(event.mode);
                     }
@@ -3357,6 +3395,7 @@ async function sendMessage() {
             const data = await response.json();
             if (response.ok) {
                 conversationId = data.conversation_id;
+                setChatUrl(conversationId);
                 if (data.mode) updateModePillUI(data.mode);
                 streamAssistantMessage(data.response, data.message_id);
                 lastFailedMessage = null;
