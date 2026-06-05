@@ -124,6 +124,19 @@ async def get_authenticated_user_id(request: Request, db: AsyncSession) -> Optio
         return None
 
 
+async def require_user_id(request: Request, db: AsyncSession) -> str:
+    """
+    Like get_authenticated_user_id but REQUIRES a valid login.
+
+    Used by every conversation-management endpoint so reads/writes are
+    always scoped to the owner. Raises 401 when not authenticated.
+    """
+    user_id = await get_authenticated_user_id(request, db)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return user_id
+
+
 async def get_user_custom_system_prompt(db: AsyncSession, user_id: Optional[str]) -> Optional[str]:
     """
     Fetch the user's custom system prompt from users.preferences JSON column.
@@ -585,8 +598,8 @@ async def get_or_create_conversation(
 
     if conversation_id:
         result = await db.execute(
-            text("SELECT id, title, mode FROM conversations WHERE id = :conv_id"),
-            {"conv_id": conversation_id}
+            text("SELECT id, title, mode FROM conversations WHERE id = :conv_id AND user_id IS NOT DISTINCT FROM :user_id"),
+            {"conv_id": conversation_id, "user_id": user_id}
         )
         existing = result.fetchone()
 
@@ -609,7 +622,7 @@ async def get_or_create_conversation(
             INSERT INTO conversations (id, user_id, title, mode, created_at, updated_at)
             VALUES (:id, :user_id, :title, :mode, NOW(), NOW())
         """),
-        {"id": new_id, "user_id": None, "title": title, "mode": initial_mode}
+        {"id": new_id, "user_id": user_id, "title": title, "mode": initial_mode}
     )
     await db.commit()
 
@@ -712,7 +725,7 @@ async def enhanced_chat(
         conversation_id, title, current_mode = await get_or_create_conversation(
             db,
             chat_request.conversation_id,
-            chat_request.user_id,
+            authenticated_user_id,
             chat_request.message,
             initial_mode=initial_mode
         )
@@ -912,7 +925,7 @@ async def stream_chat(
             conversation_id, title, current_mode = await get_or_create_conversation(
                 db,
                 chat_request.conversation_id,
-                chat_request.user_id,
+                authenticated_user_id,
                 chat_request.message,
                 initial_mode=initial_mode
             )
@@ -1304,12 +1317,14 @@ async def get_message_feedback(message_id: str, db: AsyncSession = Depends(get_d
 # ============================================================================
 
 @router.get("/chat/conversations/{conversation_id}", response_model=ConversationResponse)
-async def get_conversation(conversation_id: str, db: AsyncSession = Depends(get_db)):
-    """Get a conversation with all its messages (includes mode)"""
+async def get_conversation(conversation_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Get a conversation with all its messages (owner only, includes mode)"""
+
+    user_id = await require_user_id(request, db)
 
     result = await db.execute(
-        text("SELECT id, title, created_at, updated_at, mode FROM conversations WHERE id = :conv_id"),
-        {"conv_id": conversation_id}
+        text("SELECT id, title, created_at, updated_at, mode FROM conversations WHERE id = :conv_id AND user_id = :user_id"),
+        {"conv_id": conversation_id, "user_id": user_id}
     )
     conv = result.fetchone()
 
@@ -1329,12 +1344,20 @@ async def get_conversation(conversation_id: str, db: AsyncSession = Depends(get_
 
 
 @router.get("/chat/conversations")
-async def list_conversations(user_id: Optional[str] = None, limit: int = 20, db: AsyncSession = Depends(get_db)):
-    """List all conversations (includes mode)"""
+async def list_conversations(request: Request, limit: int = 20, db: AsyncSession = Depends(get_db)):
+    """List the authenticated user's conversations (includes mode)"""
+
+    user_id = await require_user_id(request, db)
 
     result = await db.execute(
-        text("SELECT id, title, created_at, updated_at, mode FROM conversations ORDER BY updated_at DESC LIMIT :limit"),
-        {"limit": limit}
+        text("""
+            SELECT id, title, created_at, updated_at, mode
+            FROM conversations
+            WHERE user_id = :user_id
+            ORDER BY updated_at DESC
+            LIMIT :limit
+        """),
+        {"user_id": user_id, "limit": limit}
     )
 
     conversations = []
@@ -1351,62 +1374,74 @@ async def list_conversations(user_id: Optional[str] = None, limit: int = 20, db:
 
 
 @router.patch("/chat/conversations/{conversation_id}/title")
-async def update_conversation_title(conversation_id: str, request: UpdateTitleRequest, db: AsyncSession = Depends(get_db)):
-    """Update conversation title"""
+async def update_conversation_title(conversation_id: str, body: UpdateTitleRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    """Update conversation title (owner only)"""
 
-    clean_title = sanitize_title(request.title)
+    user_id = await require_user_id(request, db)
+
+    clean_title = sanitize_title(body.title)
     if not clean_title:
         raise HTTPException(status_code=400, detail="Title cannot be empty")
 
-    await db.execute(
-        text("UPDATE conversations SET title = :title, updated_at = NOW() WHERE id = :conv_id"),
-        {"title": clean_title, "conv_id": conversation_id}
+    result = await db.execute(
+        text("UPDATE conversations SET title = :title, updated_at = NOW() WHERE id = :conv_id AND user_id = :user_id"),
+        {"title": clean_title, "conv_id": conversation_id, "user_id": user_id}
     )
     await db.commit()
+
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Conversation not found")
 
     return {"status": "updated", "conversation_id": conversation_id, "title": clean_title}
 
 
 @router.patch("/chat/conversations/{conversation_id}/mode")
-async def update_conversation_mode(conversation_id: str, request: UpdateModeRequest, db: AsyncSession = Depends(get_db)):
-    """Update conversation mode — #25 AI Mode System"""
+async def update_conversation_mode(conversation_id: str, body: UpdateModeRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    """Update conversation mode — #25 AI Mode System (owner only)"""
 
-    if request.mode not in VALID_MODES:
+    user_id = await require_user_id(request, db)
+
+    if body.mode not in VALID_MODES:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid mode. Must be one of: {', '.join(VALID_MODES)}"
         )
 
     result = await db.execute(
-        text("SELECT id FROM conversations WHERE id = :conv_id"),
-        {"conv_id": conversation_id}
-    )
-    if not result.fetchone():
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
-    await db.execute(
-        text("UPDATE conversations SET mode = :mode, updated_at = NOW() WHERE id = :conv_id"),
-        {"mode": request.mode, "conv_id": conversation_id}
+        text("UPDATE conversations SET mode = :mode, updated_at = NOW() WHERE id = :conv_id AND user_id = :user_id"),
+        {"mode": body.mode, "conv_id": conversation_id, "user_id": user_id}
     )
     await db.commit()
 
-    print(f"🎯 Mode changed for {conversation_id[:8]}... → {request.mode}")
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    print(f"🎯 Mode changed for {conversation_id[:8]}... → {body.mode}")
 
     return {
         "status": "updated",
         "conversation_id": conversation_id,
-        "mode": request.mode
+        "mode": body.mode
     }
 
 
 @router.delete("/chat/conversations/{conversation_id}")
-async def delete_conversation(conversation_id: str, db: AsyncSession = Depends(get_db)):
-    """Delete a conversation and all its messages"""
+async def delete_conversation(conversation_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Delete a conversation and all its messages (owner only)"""
+
+    user_id = await require_user_id(request, db)
+
+    owned = await db.execute(
+        text("SELECT id FROM conversations WHERE id = :conv_id AND user_id = :user_id"),
+        {"conv_id": conversation_id, "user_id": user_id}
+    )
+    if not owned.fetchone():
+        raise HTTPException(status_code=404, detail="Conversation not found")
 
     context_manager.clear_conversation(conversation_id)
 
     await db.execute(text("DELETE FROM messages WHERE conversation_id = :conv_id"), {"conv_id": conversation_id})
-    await db.execute(text("DELETE FROM conversations WHERE id = :conv_id"), {"conv_id": conversation_id})
+    await db.execute(text("DELETE FROM conversations WHERE id = :conv_id AND user_id = :user_id"), {"conv_id": conversation_id, "user_id": user_id})
     await db.commit()
 
     return {"status": "deleted", "conversation_id": conversation_id}
