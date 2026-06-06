@@ -169,6 +169,7 @@ async function login(email, password, rememberMe = false) {
             }
             
             showSuccess('Login successful! Redirecting...');
+            if (window.track) track('login', { method: 'password' });
             setTimeout(() => {
                 window.location.href = 'app.html';
             }, 1000);
@@ -209,6 +210,7 @@ async function handleGoogleRedirect() {
         if (accessToken) {
             // Google sign-in users stay logged in -> rememberMe = true
             storeTokens(accessToken, refreshToken, true);
+            if (window.track) track('login', { method: 'google' });
             // Strip tokens out of the URL
             history.replaceState(null, '', window.location.pathname);
 
@@ -280,6 +282,7 @@ async function register(name, email, password) {
             } catch (e) { }
             
             showSuccess('Account created! Redirecting...');
+            if (window.track) track('sign_up', { method: 'password' });
             setTimeout(() => {
                 window.location.href = 'app.html';
             }, 1000);

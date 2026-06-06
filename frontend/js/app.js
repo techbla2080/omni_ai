@@ -78,6 +78,7 @@ function setChatUrl(id) {
     const target = id ? ('/chat/' + id) : '/app.html';
     if (window.location.pathname !== target) {
         history.pushState({ convId: id || null }, '', target);
+        if (window.gtag) gtag('event', 'page_view', { page_path: target });
     }
 }
 
@@ -939,6 +940,7 @@ async function handleCalendarButtonClick() {
 }
 
 async function connectCalendar() {
+    if (window.track) track('calendar_connect_click');
     try {
         const response = await authFetch('/api/v1/calendar/connect');
         if (response.ok) {
@@ -1955,6 +1957,7 @@ async function handleGmailButtonClick() {
 }
 
 async function connectGmail() {
+    if (window.track) track('gmail_connect_click');
     try {
         const response = await authFetch('/api/v1/gmail/connect');
         if (response.ok) {
@@ -3191,6 +3194,8 @@ async function sendMessage() {
     const input = document.getElementById('messageInput');
     const message = input.value.trim();
     if (!message && attachedFiles.length === 0) return;
+
+    if (window.track) track('message_sent', { mode: currentMode });
 
     // ============================================================
     // #39 — Natural language trigger for book-meeting-from-email
@@ -4460,6 +4465,7 @@ function closeSuccessModal() {
 // ---- Initiate payment — calls /create-order, opens Razorpay Checkout -------
 
 async function initiatePayment() {
+    if (window.track) track('upgrade_click');
     const payBtn = document.getElementById('upgradePayBtn');
     if (payBtn) {
         payBtn.disabled = true;
@@ -4558,6 +4564,7 @@ async function verifyAndConfirmPayment(razorpayResponse) {
 
         const result = await verifyResp.json();
         console.log('#45 Payment verified:', result);
+        if (window.track) track('purchase', { value: 499, currency: 'INR', items: [{ item_name: 'OmniAI Pro Monthly' }] });
 
         // Hide upgrade modal, show success modal
         closeUpgradeModal();
