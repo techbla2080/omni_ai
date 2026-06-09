@@ -3478,22 +3478,58 @@ async function regenerateResponse(messageId) {
 
 async function submitFeedback(messageId, rating) {
     if (!conversationId || !messageId) return;
+
+    const messageDiv = document.querySelector(`[data-message-id="${messageId}"]`);
+    const upBtn = messageDiv ? messageDiv.querySelector('.thumbs-up') : null;
+    const downBtn = messageDiv ? messageDiv.querySelector('.thumbs-down') : null;
+
+    // Optimistic UI — show the choice instantly so it never feels dead
+    applyFeedbackUI(upBtn, downBtn, rating, 'sending');
+
     try {
         const response = await authFetch('/api/v1/feedback', {
             method: 'POST',
             body: JSON.stringify({ message_id: messageId, conversation_id: conversationId, rating: rating })
         });
-        if (!response.ok) throw new Error('Feedback failed');
-        const messageDiv = document.querySelector(`[data-message-id="${messageId}"]`);
-        if (messageDiv) {
-            const thumbsUpBtn = messageDiv.querySelector('.thumbs-up');
-            const thumbsDownBtn = messageDiv.querySelector('.thumbs-down');
-            if (thumbsUpBtn) thumbsUpBtn.classList.remove('active');
-            if (thumbsDownBtn) thumbsDownBtn.classList.remove('active');
-            if (rating === 1 && thumbsUpBtn) thumbsUpBtn.classList.add('active');
-            else if (thumbsDownBtn) thumbsDownBtn.classList.add('active');
-        }
-    } catch (error) { console.error('Feedback error:', error); }
+        if (!response.ok) throw new Error('Feedback failed (' + response.status + ')');
+        applyFeedbackUI(upBtn, downBtn, rating, 'done');
+        if (window.track) track('feedback_submitted', { rating: rating === 1 ? 'up' : 'down' });
+    } catch (error) {
+        console.error('Feedback error:', error);
+        applyFeedbackUI(upBtn, downBtn, rating, 'error');
+    }
+}
+
+// Visible confirmation for a feedback click. Highlights the chosen button,
+// dims the other, and shows a status note next to them.
+function applyFeedbackUI(upBtn, downBtn, rating, state) {
+    if (!upBtn && !downBtn) return;
+    const chosen = rating === 1 ? upBtn : downBtn;
+    const other  = rating === 1 ? downBtn : upBtn;
+
+    [upBtn, downBtn].forEach(b => { if (b) b.classList.remove('active'); });
+    if (chosen) {
+        chosen.classList.add('active');
+        chosen.style.opacity = '1';
+        chosen.style.fontWeight = '600';
+        chosen.style.transform = 'scale(1.05)';
+    }
+    if (other) { other.style.opacity = '0.4'; other.style.fontWeight = ''; other.style.transform = ''; }
+
+    const container = (chosen || other).closest('.feedback-buttons');
+    if (!container) return;
+    let note = container.querySelector('.feedback-note');
+    if (!note) {
+        note = document.createElement('span');
+        note.className = 'feedback-note';
+        note.style.marginLeft = '10px';
+        note.style.fontSize = '0.85em';
+        note.style.alignSelf = 'center';
+        container.appendChild(note);
+    }
+    if (state === 'sending')      { note.textContent = 'Saving…';                    note.style.color = 'inherit'; note.style.opacity = '0.7'; }
+    else if (state === 'done')    { note.textContent = '✓ Thanks for your feedback!'; note.style.color = '#16a34a'; note.style.opacity = '1'; }
+    else if (state === 'error')   { note.textContent = '⚠ Could not save — please try again'; note.style.color = '#dc2626'; note.style.opacity = '1'; }
 }
 
 // ============================================================================
